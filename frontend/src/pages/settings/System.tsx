@@ -4,22 +4,32 @@
  * 独立于实时监控, 放置影响整体应用行为的开关项。
  */
 import { useState, useCallback } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
-import { Settings2, Trash2, RefreshCw, Bell, Volume2, Info } from 'lucide-react'
-import { usePreferences, useVersion } from '@/lib/useSharedQueries'
-import { api } from '@/lib/api'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { Settings2, Trash2, RefreshCw, Bell, Volume2, Info, Database, Cloud, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react'
+import { usePreferences, useSettings, useVersion } from '@/lib/useSharedQueries'
+import { api, type DataProviderName } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { PageHeader } from '@/components/PageHeader'
 import { refreshAlertToastConfig } from '@/components/AlertToast'
 import { SOUND_OPTIONS, previewSound } from '@/lib/notificationSound'
+import { toast } from '@/components/Toast'
+
+const DATA_PROVIDER_OPTIONS: Array<{ id: DataProviderName; label: string; desc: string }> = [
+  { id: 'tickflow', label: 'TickFlow', desc: 'TickFlow 能力与实时行情' },
+  { id: 'akshare', label: 'AkShare', desc: '免费日线数据 · 手动同步' },
+]
 
 export function SettingsSystemPanel() {
   const qc = useQueryClient()
   const { data: prefs } = usePreferences()
+  const settings = useSettings()
   const { data: versionData } = useVersion()
   const [saving, setSaving] = useState(false)
 
   const screenerAutoRun = prefs?.screener_auto_run ?? true
+  const effectiveProvider: DataProviderName = settings.data?.data_provider === 'akshare' ? 'akshare' : 'tickflow'
+  const configuredProvider: DataProviderName = settings.data?.configured_data_provider === 'akshare' ? 'akshare' : 'tickflow'
+  const effectiveLabel = settings.data?.provider_label ?? (effectiveProvider === 'akshare' ? 'AkShare' : 'TickFlow')
   const [clearing, setClearing] = useState(false)
   const [toastEnabled, setToastEnabled] = useState(() => {
     try { return localStorage.getItem('alert_toast_enabled') !== '0' } catch { return true }
@@ -47,6 +57,19 @@ export function SettingsSystemPanel() {
     }
   }, [qc])
 
+  const saveProvider = useMutation({
+    mutationFn: (provider: DataProviderName) => api.saveDataProvider(provider),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: QK.settings })
+      qc.invalidateQueries({ queryKey: QK.capabilities })
+      qc.invalidateQueries({ queryKey: QK.preferences })
+      toast(
+        result.changed ? '数据源已切换' : '数据源设置已保存',
+        'success',
+      )
+    },
+  })
+
   // 清理浏览器缓存: 清除 react-query 缓存 + 强制重载 (绕过浏览器缓存)
   // 不动 localStorage (用户列配置/策略池等偏好保留)
   const handleClearCache = useCallback(() => {
@@ -66,6 +89,78 @@ export function SettingsSystemPanel() {
       />
 
       <section className="rounded-card border border-border bg-surface p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <Database className="h-4 w-4 text-accent" />
+          <h3 className="text-sm font-medium text-foreground">数据源</h3>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm text-foreground">默认数据源</div>
+              <div className="text-[11px] text-muted truncate">保存到本地配置, 并立即切换当前运行状态</div>
+            </div>
+            <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+              <span className="rounded-btn border border-border bg-base px-2 py-1 text-secondary">
+                运行中 <span className="font-mono text-foreground">{effectiveLabel}</span>
+              </span>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {DATA_PROVIDER_OPTIONS.map((opt) => {
+              const selected = configuredProvider === opt.id
+              const running = effectiveProvider === opt.id
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  aria-pressed={selected}
+                  disabled={settings.isLoading || saveProvider.isPending || selected}
+                  onClick={() => saveProvider.mutate(opt.id)}
+                  className={`min-h-[72px] rounded-btn border px-3 py-3 text-left transition-colors duration-150 ease-smooth disabled:cursor-default ${
+                    selected
+                      ? 'border-accent/60 bg-accent/8 text-foreground'
+                      : 'border-border bg-base text-secondary hover:border-accent/35 hover:bg-elevated/50 hover:text-foreground'
+                  }`}
+                >
+                  <div className="flex items-start gap-2.5">
+                    {opt.id === 'tickflow' ? (
+                      <Cloud className="mt-0.5 h-4 w-4 shrink-0" />
+                    ) : (
+                      <Database className="mt-0.5 h-4 w-4 shrink-0" />
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-medium">{opt.label}</span>
+                        {selected && <CheckCircle2 className="h-3.5 w-3.5 text-accent" />}
+                        {saveProvider.isPending && saveProvider.variables === opt.id && (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin text-accent" />
+                        )}
+                      </div>
+                      <div className="mt-1 text-[11px] leading-snug text-muted">{opt.desc}</div>
+                      {running && (
+                        <div className="mt-1 text-[10px] font-mono uppercase tracking-wide text-accent">
+                          运行中
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </button>
+              )
+            })}
+          </div>
+
+          {saveProvider.isError && (
+            <div className="flex items-center gap-1.5 text-xs text-danger">
+              <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+              保存失败:{String((saveProvider.error as any).message)}
+            </div>
+          )}
+        </div>
+      </section>
+
+      <section className="rounded-card border border-border bg-surface p-5 mt-6">
         <div className="flex items-center gap-2 mb-4">
           <Settings2 className="h-4 w-4 text-accent" />
           <h3 className="text-sm font-medium text-foreground">策略页</h3>

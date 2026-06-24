@@ -180,6 +180,9 @@ export function Data() {
   const updateInterval = useUpdateQuoteInterval()
 
   const realtimeEnabled = prefs.data?.realtime_quotes_enabled ?? false
+  const realtimeAllowed = prefs.data?.realtime_allowed ?? true
+  const isAkShare = settings.data?.data_provider === 'akshare'
+  const providerLabel = settings.data?.provider_label ?? 'TickFlow'
   const quoteStatus = useQuoteStatus()
   const toggleQuote = useToggleRealtimeQuotes()
 
@@ -290,6 +293,10 @@ export function Data() {
         subtitle="本地数据画像 · 同步状态 · 历史记录"
         right={
           <div className="flex items-center gap-3">
+            <span className="inline-flex items-center gap-1.5 rounded-btn border border-border bg-surface px-2 py-1 text-xs text-secondary">
+              数据源
+              <span className="font-mono text-foreground">{providerLabel}</span>
+            </span>
             {!hasData && !isLoading && (
               <span className="text-xs text-accent animate-pulse">首次使用请点击右侧按钮同步数据</span>
             )}
@@ -363,6 +370,8 @@ export function Data() {
             loading={quoteStatus.isLoading}
             onToggle={(v) => toggleQuote.mutate(v)}
             toggling={toggleQuote.isPending}
+            disabled={!realtimeAllowed}
+            disabledLabel={isAkShare ? '当前数据源不支持' : '无权限'}
             showIntervalEdit={showIntervalEdit}
             onShowIntervalEdit={handleToggleIntervalEdit}
             onIntervalChange={(v) => updateInterval.mutate(v)}
@@ -756,6 +765,7 @@ export function Data() {
               isRunning={!!activeJobId}
               earliestDate={s?.daily?.earliest_date ?? null}
               onStart={() => setOpenSettings(null)}
+              provider={settings.data?.data_provider}
             />
           </SettingsModal>
         )}

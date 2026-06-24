@@ -27,6 +27,8 @@ try {
     [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding $false
     $OutputEncoding           = New-Object System.Text.UTF8Encoding $false
 } catch {}
+$env:PYTHONUTF8       = '1'
+$env:PYTHONIOENCODING = 'utf-8'
 
 $Root        = Split-Path -Parent $MyInvocation.MyCommand.Path
 $BackendDir  = Join-Path $Root 'backend'
@@ -108,13 +110,39 @@ function Free-Port($name, $port) {
 Free-Port 'backend'  $BackendPort
 Free-Port 'frontend' $FrontendPort
 
-# ===== 3. First-time dependency install =====
-if (-not (Test-Path (Join-Path $BackendDir '.venv'))) {
-    Log-Info 'first run - installing Python deps (1-2 min)...'
+# ===== 3. Dependency install / sync =====
+function Get-BackendDependencyHash {
+    $files = @(
+        (Join-Path $BackendDir 'pyproject.toml'),
+        (Join-Path $BackendDir 'uv.lock')
+    )
+    $hashes = foreach ($file in $files) {
+        if (Test-Path $file) {
+            (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash
+        }
+    }
+    return ($hashes -join "`n")
+}
+
+function Sync-BackendDeps($message) {
+    Log-Info $message
     Push-Location $BackendDir
     try { & uv sync } finally { Pop-Location }
     if ($LASTEXITCODE -ne 0) { Log-Err 'uv sync failed'; exit 1 }
-    Log-Ok 'backend deps installed'
+    $stampFile = Join-Path $BackendDir '.venv\.tickflow-sync-stamp'
+    Set-Content -LiteralPath $stampFile -Value (Get-BackendDependencyHash) -Encoding ascii
+    Log-Ok 'backend deps synced'
+}
+
+$backendVenv = Join-Path $BackendDir '.venv'
+$backendStampFile = Join-Path $backendVenv '.tickflow-sync-stamp'
+$backendExpectedHash = Get-BackendDependencyHash
+$backendActualHash = if (Test-Path $backendStampFile) { (Get-Content -LiteralPath $backendStampFile -Raw).Trim() } else { '' }
+
+if (-not (Test-Path $backendVenv)) {
+    Sync-BackendDeps 'first run - installing Python deps (1-2 min)...'
+} elseif ($backendActualHash -ne $backendExpectedHash) {
+    Sync-BackendDeps 'backend dependency files changed - syncing Python deps...'
 }
 
 if (-not (Test-Path (Join-Path $FrontendDir 'node_modules'))) {

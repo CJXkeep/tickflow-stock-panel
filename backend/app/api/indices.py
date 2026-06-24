@@ -8,6 +8,8 @@ from typing import Optional
 import polars as pl
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from app.config import settings
+from app.datasource.akshare_source import AkShareSource
 from app.indicators.pipeline import compute_enriched
 from app.services import index_sync, kline_sync
 from app.tickflow.capabilities import Cap
@@ -91,6 +93,9 @@ def get_index_daily(
     if not capset.has(Cap.KLINE_DAILY_BATCH):
         return {"symbol": symbol, "name": info.get("name"), "index_info": info, "rows": [], "source": "none"}
 
+    if settings.provider_is_akshare:
+        return {"symbol": symbol, "name": info.get("name"), "index_info": info, "rows": [], "source": "none"}
+
     try:
         raw = kline_sync.sync_daily_batch([symbol], count=days + 150)
     except Exception as e:  # noqa: BLE001
@@ -113,6 +118,15 @@ def get_index_minute(
     repo = request.app.state.repo
     info = _index_info(repo, symbol)
     day = trade_date or date.today()
+    if settings.provider_is_akshare:
+        return {
+            "symbol": symbol,
+            "name": info.get("name"),
+            "index_info": info,
+            "date": str(day),
+            "rows": [],
+            "source": "none",
+        }
     df = kline_sync.fetch_minute_single(symbol, day)
     return {
         "symbol": symbol,
@@ -128,6 +142,11 @@ def get_index_minute(
 def sync_index_instruments(request: Request):
     """同步 CN_Index 指数标的列表。"""
     repo = request.app.state.repo
+    if settings.provider_is_akshare:
+        instruments = AkShareSource().index_instruments()
+        repo.save_index_instruments(instruments)
+        repo.refresh_index_views()
+        return {"status": "ok", "provider": "akshare", "count": instruments.height}
     count = index_sync.sync_index_instruments(repo)
     return {"status": "ok", "count": count}
 
@@ -139,6 +158,12 @@ def sync_index_daily(
 ):
     """同步指数日K到独立 parquet。"""
     repo = request.app.state.repo
+    if settings.provider_is_akshare:
+        from app.services import akshare_sync
+        years = max(1, min(10, round(days / 365)))
+        count, rows, failures = akshare_sync.sync_index(repo, years=years)
+        return {"status": "ok", "provider": "akshare", "index_count": count, "rows_written": rows, "failures": failures}
+
     capset = request.app.state.capabilities
     if not capset.has(Cap.KLINE_DAILY_BATCH):
         raise HTTPException(status_code=403, detail="需要 Pro+ 权限 (batch K-line)")

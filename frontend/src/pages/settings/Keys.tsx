@@ -69,6 +69,8 @@ export function SettingsKeysPanel() {
   const mode = settings.data?.mode
   const masked = settings.data?.tickflow_api_key_masked
   const capCount = caps.data ? Object.keys(caps.data.capabilities).length : 0
+  const isAkShare = settings.data?.data_provider === 'akshare'
+  const providerLabel = settings.data?.provider_label ?? 'TickFlow'
 
   return (
     <>
@@ -76,6 +78,15 @@ export function SettingsKeysPanel() {
         {/* ========== 左列: Key 配置 ========== */}
         <div className="space-y-6">
           <Card icon={Key} title="TickFlow API Key">
+            <div className="mb-4 inline-flex items-center gap-1.5 rounded-btn border border-border bg-base px-2 py-1 text-xs text-secondary">
+              当前数据源
+              <span className="font-mono text-foreground">{providerLabel}</span>
+            </div>
+            {isAkShare && (
+              <div className="mb-4 rounded-btn border border-accent/30 bg-accent/8 px-3 py-2 text-xs leading-relaxed text-secondary">
+                AkShare 模式可跳过 TickFlow Key；该 Key 仅在切回 TickFlow 数据源时用于 TickFlow 能力。
+              </div>
+            )}
             <p className="text-sm text-secondary leading-relaxed mb-4">
               在{' '}
               <a
@@ -128,6 +139,12 @@ export function SettingsKeysPanel() {
                       <span className="text-sm font-medium shrink-0">免费 Key</span>
                       <span className="font-mono text-xs text-secondary truncate">{masked}</span>
                     </>
+                  ) : isAkShare ? (
+                    <>
+                      <CheckCircle2 className="h-4 w-4 text-accent shrink-0" />
+                      <span className="text-sm font-medium shrink-0">AkShare 模式</span>
+                      <span className="text-xs text-secondary truncate">TickFlow Key 可选</span>
+                    </>
                   ) : (
                     <>
                       <AlertCircle className="h-4 w-4 text-muted shrink-0" />
@@ -159,7 +176,7 @@ export function SettingsKeysPanel() {
               <div className="relative">
                 <input
                   type={revealing ? 'text' : 'password'}
-                  placeholder={mode === 'none' ? '粘贴 TickFlow API Key' : '粘贴新 Key 替换当前'}
+                  placeholder={mode === 'none' ? '粘贴 TickFlow API Key(可选)' : '粘贴新 Key 替换当前'}
                   value={keyInput}
                   onChange={(e) => { setKeyInput(e.target.value); if (saved) setSaved(false) }}
                   className="w-full px-3 py-2 pr-9 rounded-input bg-base border border-border text-sm font-mono focus:outline-none focus:border-accent transition-colors duration-150 ease-smooth"
@@ -251,7 +268,9 @@ export function SettingsKeysPanel() {
                   <TierHelpPopover currentLabel={caps.data.label} />
                 </div>
                 <div className="mt-1 text-xs text-muted">
-                  根据 API Key 自动检测 · 拥有"代表性 capability"任一即认为该档
+                  {isAkShare
+                    ? '当前数据源静态能力 · 不探测 TickFlow'
+                    : '根据 API Key 自动检测 · 拥有"代表性 capability"任一即认为该档'}
                 </div>
 
                 {settings.data?.missing_caps && settings.data.missing_caps.length > 0 && (

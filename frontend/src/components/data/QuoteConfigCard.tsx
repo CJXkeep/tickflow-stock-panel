@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Activity, Settings } from 'lucide-react'
 import { Skeleton } from './Skeleton'
 
-export function QuoteConfigCard({ enabled, running, isTrading, lastFetchMs, intervalS, intervalMin, intervalMax, loading, onToggle, toggling, showIntervalEdit, onShowIntervalEdit, onIntervalChange }: {
+export function QuoteConfigCard({ enabled, running, isTrading, lastFetchMs, intervalS, intervalMin, intervalMax, loading, onToggle, toggling, showIntervalEdit, onShowIntervalEdit, onIntervalChange, disabled = false, disabledLabel }: {
   enabled: boolean
   running: boolean
   isTrading: boolean
@@ -17,6 +17,8 @@ export function QuoteConfigCard({ enabled, running, isTrading, lastFetchMs, inte
   showIntervalEdit: boolean
   onShowIntervalEdit: () => void
   onIntervalChange: (v: number) => void
+  disabled?: boolean
+  disabledLabel?: string
 }) {
   const statusColor = running && isTrading
     ? 'bg-accent shadow-[0_0_6px_rgba(61,214,140,0.5)]'
@@ -45,12 +47,12 @@ export function QuoteConfigCard({ enabled, running, isTrading, lastFetchMs, inte
         </div>
         <button
           onClick={() => onToggle(!enabled)}
-          disabled={toggling}
+          disabled={toggling || disabled}
           className={`relative inline-flex h-4 w-7 items-center rounded-full shrink-0 transition-colors duration-200 ${
             enabled
               ? 'bg-accent shadow-[0_0_6px_rgba(59,130,246,0.3)]'
               : 'bg-elevated'
-          } ${toggling ? 'opacity-50' : 'cursor-pointer'}`}
+          } ${(toggling || disabled) ? 'opacity-50' : 'cursor-pointer'}`}
         >
           <span className={`inline-block h-3 w-3 rounded-full bg-white shadow-sm transition-transform duration-200 ${
             enabled ? 'translate-x-[14px]' : 'translate-x-0.5'
@@ -71,7 +73,7 @@ export function QuoteConfigCard({ enabled, running, isTrading, lastFetchMs, inte
             <span className="text-muted">状态</span>
             <div className="flex items-center gap-1.5">
               <span className={`inline-block h-1.5 w-1.5 rounded-full ${statusColor} ${running && isTrading ? 'animate-pulse' : ''}`} />
-              <span className="font-mono text-secondary">{statusText}</span>
+              <span className="font-mono text-secondary">{disabled && disabledLabel ? disabledLabel : statusText}</span>
             </div>
           </div>
           <div className="flex items-center justify-between text-[11px]">

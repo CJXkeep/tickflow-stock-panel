@@ -205,6 +205,9 @@ class QuoteService:
         none/free 档走 free-api 服务器,无实时行情权限 → 不允许;
         starter+ 付费档走付费端点,有实时行情 → 允许。
         """
+        from app.config import settings
+        if settings.provider_is_akshare:
+            return False
         return cls._current_tier() not in ("none", "free")
 
     @classmethod

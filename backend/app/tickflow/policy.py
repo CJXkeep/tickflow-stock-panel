@@ -249,6 +249,20 @@ def _probe_real(tiers: dict) -> tuple[CapabilitySet, list[str]]:
 
 def detect_capabilities(force: bool = False) -> CapabilitySet:
     """探测当前 API Key 的能力集。"""
+    if settings.provider_is_akshare:
+        capset = CapabilitySet({
+            Cap.KLINE_DAILY_BY_SYMBOL: CapabilityLimits(rpm=None, batch=1),
+            Cap.KLINE_DAILY_BATCH: CapabilityLimits(rpm=None, batch=200),
+        })
+        _persist(
+            capset,
+            "AkShare",
+            log=["AkShare provider: local free after-market daily bars"],
+            missing=[],
+            extras=[],
+        )
+        return capset
+
     cache_path = settings.data_dir / _CAPSET_CACHE_FILE
     if not force and cache_path.exists():
         with cache_path.open(encoding="utf-8") as f:
@@ -497,6 +511,8 @@ def _capset_from_json(data: dict[str, Any]) -> CapabilitySet:
 
 
 def tier_label() -> str:
+    if settings.provider_is_akshare:
+        return "AkShare"
     cache_path = settings.data_dir / _CAPSET_CACHE_FILE
     if cache_path.exists():
         with cache_path.open(encoding="utf-8") as f:

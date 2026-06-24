@@ -7,7 +7,7 @@ from __future__ import annotations
 import logging
 import time
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel
 
 from app import secrets_store
@@ -33,6 +33,65 @@ class TickflowKeyIn(BaseModel):
     api_key: str
 
 
+def _provider_label(provider: str) -> str:
+    return "AkShare" if provider == "akshare" else "TickFlow"
+
+
+def _current_provider() -> str:
+    from app.config import settings
+    return secrets_store.normalize_data_provider(settings.data_provider) or "tickflow"
+
+
+def _apply_provider_runtime(provider: str, request: Request) -> dict:
+    """Apply provider changes to running services without restarting FastAPI."""
+    from app.config import settings
+    from app.jobs import daily_pipeline
+    from app.services import preferences
+
+    old_provider = _current_provider()
+    settings.data_provider = provider
+    tf_client.reset_clients()
+
+    capset = detect_capabilities(force=True)
+    request.app.state.capabilities = capset
+
+    if provider == "akshare":
+        preferences.save({
+            "realtime_quotes_enabled": False,
+            "minute_sync_enabled": False,
+        })
+        qs = getattr(request.app.state, "quote_service", None)
+        if qs:
+            qs.disable()
+        depth_svc = getattr(request.app.state, "depth_service", None)
+        if depth_svc:
+            depth_svc.stop_polling()
+        fs = getattr(request.app.state, "financial_scheduler", None)
+        if fs:
+            fs.stop()
+    else:
+        qs = getattr(request.app.state, "quote_service", None)
+        if qs:
+            qs.boot_check()
+        depth_svc = getattr(request.app.state, "depth_service", None)
+        if depth_svc:
+            depth_svc.start_polling()
+        fs = getattr(request.app.state, "financial_scheduler", None)
+        if fs:
+            fs._data_dir = settings.data_dir
+            fs._capset = capset
+
+    scheduler = getattr(request.app.state, "scheduler", None)
+    repo = getattr(request.app.state, "repo", None)
+    if scheduler and repo:
+        daily_pipeline.configure_scheduler_jobs(scheduler, repo, capset)
+
+    return {
+        "changed": old_provider != provider,
+        "capabilities_count": len(capset.all()),
+    }
+
+
 @router.get("")
 def get_settings() -> dict:
     """返回当前配置概况(Key 脱敏)。"""
@@ -40,12 +99,20 @@ def get_settings() -> dict:
     from app.services import preferences
 
     key = secrets_store.get_tickflow_key()
+    effective_provider = _current_provider()
+    configured_provider = secrets_store.get_data_provider(effective_provider)
+    provider_is_akshare = effective_provider == "akshare"
     return {
-        "mode": tf_client.current_mode(),
+        "data_provider": effective_provider,
+        "configured_data_provider": configured_provider,
+        "provider_label": _provider_label(effective_provider),
+        "configured_provider_label": _provider_label(configured_provider),
+        "data_provider_restart_required": False,
+        "mode": "none" if provider_is_akshare else tf_client.current_mode(),
         "tickflow_api_key_masked": secrets_store.mask(key),
         "has_tickflow_key": bool(key),
         "tier_label": tier_label(),
-        "current_endpoint": tf_client.current_endpoint(),
+        "current_endpoint": "akshare-local" if provider_is_akshare else tf_client.current_endpoint(),
         "probe_log": probe_log(),
         "missing_caps": missing_caps(),
         "extras_caps": extras_caps(),
@@ -58,6 +125,31 @@ def get_settings() -> dict:
         "has_ai_key": bool(secrets_store.get_ai_key()),
         "ai_model": secrets_store.get_ai_config("ai_model", settings.ai_model),
         "ai_daily_token_budget": int(secrets_store.get_ai_config("ai_daily_token_budget", str(settings.ai_daily_token_budget)) or settings.ai_daily_token_budget),
+    }
+
+
+class DataProviderIn(BaseModel):
+    data_provider: str
+
+
+@router.put("/data-provider")
+def save_data_provider(req: DataProviderIn, request: Request) -> dict:
+    """保存并立即切换数据源。"""
+    provider = secrets_store.normalize_data_provider(req.data_provider)
+    if not provider:
+        raise HTTPException(status_code=400, detail="Unsupported data provider")
+
+    secrets_store.save({"data_provider": provider})
+    runtime = _apply_provider_runtime(provider, request)
+    return {
+        "ok": True,
+        "data_provider": provider,
+        "configured_data_provider": provider,
+        "provider_label": _provider_label(provider),
+        "configured_provider_label": _provider_label(provider),
+        "data_provider_restart_required": False,
+        "restart_required": False,
+        **runtime,
     }
 
 
@@ -349,8 +441,19 @@ def update_screener_result_columns(req: dict) -> dict:
 @router.put("/preferences/minute-sync")
 def update_minute_sync(req: MinuteSyncPrefs) -> dict:
     """保存分钟 K 同步偏好。"""
+    from app.config import settings
     from app.services import preferences
     days = max(1, min(30, req.minute_sync_days))
+    if settings.provider_is_akshare:
+        preferences.save({
+            "minute_sync_enabled": False,
+            "minute_sync_days": days,
+        })
+        return {
+            "minute_sync_enabled": False,
+            "minute_sync_days": days,
+        }
+
     preferences.save({
         "minute_sync_enabled": req.minute_sync_enabled,
         "minute_sync_days": days,
@@ -375,7 +478,7 @@ def update_realtime_quotes(req: RealtimeQuotesPrefs, request: Request) -> dict:
     from app.services import preferences
     qs = getattr(request.app.state, "quote_service", None)
 
-    allowed = qs.is_realtime_allowed() if qs else True
+    allowed = qs.is_realtime_allowed() if qs else _realtime_allowed()
     if req.realtime_quotes_enabled and not allowed:
         # 当前档位不允许开启实时行情 — 强制关闭
         preferences.save({"realtime_quotes_enabled": False})

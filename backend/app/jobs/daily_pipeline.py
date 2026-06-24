@@ -29,6 +29,12 @@ logger = logging.getLogger(__name__)
 
 ProgressCb = Callable[..., None]
 
+_SCHEDULER_JOB_IDS = (
+    "pre_market_instruments",
+    "daily_pipeline",
+    "depth_finalize",
+)
+
 
 def _noop(stage: str, pct: int, msg: str, **kwargs) -> None:  # noqa: ARG001
     pass
@@ -86,6 +92,9 @@ def run_now(
     跳过的 stage **不 emit**,避免前端把"无 capability"的卡片错误标记为 active/done。
     result 里带 skipped_stages 列表供前端展示。
     """
+    if settings.provider_is_akshare:
+        return _run_akshare_now(repo, on_progress=on_progress)
+
     emit = on_progress or _noop
     skipped: list[str] = []
 
@@ -364,6 +373,88 @@ def run_now(
     }
 
 
+def _run_akshare_now(repo: KlineRepository, on_progress: ProgressCb | None = None) -> dict:
+    """Run the manual AkShare after-market pipeline.
+
+    Phase 1 intentionally supports manual sync only. Scheduler registration skips
+    this path for AkShare to avoid startup/cron network surprises.
+    """
+    from app.services import akshare_sync
+
+    emit = on_progress or _noop
+    skipped = ["sync_adj", "sync_minute", "depth5", "financials"]
+
+    emit("sync_instruments", 2, "同步 AkShare 标的维表…")
+    inst_rows = akshare_sync.sync_instruments(repo.store.data_dir)
+    if inst_rows > 0:
+        _refresh_instruments_view(repo)
+        repo.refresh_cache()
+    _invalidate("instruments")
+    emit("sync_instruments", 8, f"标的维表同步完成,{inst_rows} 只标的")
+
+    emit("sync_daily", 10, f"同步 AkShare 最近 {settings.akshare_initial_years} 年日K…")
+
+    def _daily_progress(cur: int, tot: int) -> None:
+        emit(
+            "sync_daily",
+            10 + int(45 * cur / max(tot, 1)),
+            f"日K {cur}/{tot}",
+            stage_pct=int(100 * cur / max(tot, 1)),
+            skip_log=True,
+        )
+
+    written_daily, daily_failures = akshare_sync.sync_daily(
+        repo,
+        years=settings.akshare_initial_years,
+        on_chunk_done=_daily_progress,
+    )
+    _refresh_single_view(repo, "kline_daily")
+    _invalidate("daily")
+    emit("sync_daily", 55, f"日K 完成,{written_daily} 行,失败 {len(daily_failures)} 只")
+
+    emit("compute_enriched", 60, "全量计算 enriched…")
+    written_enriched = run_pipeline(on_batch_done=lambda cur, tot: emit(
+        "compute_enriched",
+        60 + int(25 * cur / max(tot, 1)),
+        f"计算指标 批次 {cur}/{tot}",
+        stage_pct=int(100 * cur / max(tot, 1)),
+        skip_log=True,
+    ))
+    _refresh_single_view(repo, "kline_enriched")
+    _invalidate("enriched")
+    emit("compute_enriched", 85, f"enriched 完成,{written_enriched} 行")
+
+    emit("sync_index", 88, "同步 AkShare 指数日K…")
+    index_count, index_rows, index_failures = akshare_sync.sync_index(
+        repo,
+        years=settings.akshare_initial_years,
+    )
+    _invalidate("index_instruments")
+    _invalidate("index_daily")
+    _invalidate("index_enriched")
+    emit("sync_index", 93, f"指数完成,{index_count} 只,{index_rows} 行,失败 {len(index_failures)} 只")
+
+    emit("refresh_views", 95, "刷新 DuckDB 视图…")
+    _refresh_views(repo)
+    repo.refresh_cache()
+    _invalidate(None)
+    emit("done", 100, "完成")
+
+    return {
+        "provider": "akshare",
+        "universe_size": inst_rows,
+        "daily_rows": written_daily,
+        "daily_failures": daily_failures[:50],
+        "daily_failure_count": len(daily_failures),
+        "enriched_days": written_enriched,
+        "index_count": index_count,
+        "index_daily_rows": index_rows,
+        "index_failures": index_failures,
+        "minute_rows": 0,
+        "skipped_stages": skipped,
+    }
+
+
 def _refresh_views(repo: KlineRepository) -> None:
     """刷新所有 DuckDB 视图。"""
     d = repo.store.data_dir.as_posix()
@@ -449,17 +540,25 @@ def _run_tracked(fn, job_label: str) -> None:
         job_store.fail(job_id, f"scheduled {job_label} failed")
 
 
-def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOScheduler:
-    """启动调度器。
-
-    工作日 09:10 — 同步标的维表
-    工作日 HH:MM — 盘后管道（时间由用户偏好决定，默认 15:30）
-    """
+def configure_scheduler_jobs(
+    scheduler: AsyncIOScheduler,
+    repo: KlineRepository,
+    capset: CapabilitySet,
+) -> None:
+    """按当前 provider/capability 重建盘前盘后调度任务。"""
     from app.services import preferences
     sched = preferences.get_pipeline_schedule()
     inst_sched = preferences.get_instruments_schedule()
 
-    scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
+    for job_id in _SCHEDULER_JOB_IDS:
+        try:
+            scheduler.remove_job(job_id)
+        except Exception:
+            pass
+
+    if settings.provider_is_akshare:
+        logger.info("scheduler configured in AkShare mode; provider network sync is manual-only")
+        return
 
     # 盘前: 同步 instruments（时间由偏好决定）
     def _instruments_task(on_progress=None):
@@ -515,6 +614,17 @@ def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOSche
     logger.info("scheduler started; instruments@%02d:%02d, pipeline@%02d:%02d, depth@%02d:%02d mon-fri",
                 inst_sched["hour"], inst_sched["minute"], sched["hour"], sched["minute"],
                 depth_sched["hour"], depth_sched["minute"])
+
+
+def start_scheduler(repo: KlineRepository, capset: CapabilitySet) -> AsyncIOScheduler:
+    """启动调度器。
+
+    工作日 09:10 — 同步标的维表
+    工作日 HH:MM — 盘后管道（时间由用户偏好决定，默认 15:30）
+    """
+    scheduler = AsyncIOScheduler(timezone="Asia/Shanghai")
+    configure_scheduler_jobs(scheduler, repo, capset)
+    scheduler.start()
     return scheduler
 
 

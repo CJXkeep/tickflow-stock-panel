@@ -4,16 +4,18 @@ import { Loader2 } from 'lucide-react'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 
-export function ExtendHistoryPanel({ caps, isRunning, earliestDate, onStart }: {
+export function ExtendHistoryPanel({ caps, isRunning, earliestDate, onStart, provider }: {
   caps: { label: string; capabilities: Record<string, { rpm: number | null; batch: number | null; subscribe: number | null }> } | undefined
   isRunning: boolean
   earliestDate: string | null
   onStart: () => void
+  provider?: string
 }) {
   const qc = useQueryClient()
   const [value, setValue] = useState(6)
   const [unit, setUnit] = useState<'month' | 'year'>('month')
-  const hasBatchCap = !!caps?.capabilities?.['kline.daily.batch']
+  const isAkShare = provider === 'akshare'
+  const hasBatchCap = !!caps?.capabilities?.['kline.daily.batch'] && !isAkShare
 
   const extend = useMutation({
     mutationFn: () => api.extendHistory(value, unit),
@@ -90,7 +92,7 @@ export function ExtendHistoryPanel({ caps, isRunning, earliestDate, onStart }: {
 
       {!hasBatchCap && (
         <span className="text-[10px] text-warning/80 bg-warning/8 rounded px-1.5 py-px font-medium">
-          需 Pro+ 权限
+          {isAkShare ? 'AkShare 模式暂不支持扩展历史' : '需 Pro+ 权限'}
         </span>
       )}
     </div>

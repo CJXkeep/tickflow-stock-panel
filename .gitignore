@@ -87,6 +87,8 @@ docs/zhihu/
 data/strategies/custom/
 
 # ===== 临时 / 调试产物 =====
+backend/.pycache-compile/
+backend/.tmp-provider-settings-smoke/
 backend._recheck*.py
 backend/_verify*.py
 backend/_desktop_run.log

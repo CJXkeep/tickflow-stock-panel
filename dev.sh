@@ -71,11 +71,42 @@ free_port() {
 free_port backend  "$BACKEND_PORT"
 free_port frontend "$FRONTEND_PORT"
 
-# ===== 3. 首次依赖安装 =====
-if [ ! -d "$BACKEND_DIR/.venv" ]; then
-  info "后端首次启动 — 安装 Python 依赖(约 1-2 分钟)..."
+# ===== 3. 依赖安装 / 同步 =====
+file_hash() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+backend_dependency_hash() {
+  local file
+  for file in "$BACKEND_DIR/pyproject.toml" "$BACKEND_DIR/uv.lock"; do
+    if [ -f "$file" ]; then
+      file_hash "$file"
+    fi
+  done
+}
+
+sync_backend_deps() {
+  info "$1"
   ( cd "$BACKEND_DIR" && uv sync )
-  ok "后端依赖装好了"
+  backend_dependency_hash > "$BACKEND_DIR/.venv/.tickflow-sync-stamp"
+  ok "后端依赖同步好了"
+}
+
+BACKEND_STAMP="$BACKEND_DIR/.venv/.tickflow-sync-stamp"
+BACKEND_EXPECTED_HASH="$(backend_dependency_hash)"
+BACKEND_ACTUAL_HASH=""
+if [ -f "$BACKEND_STAMP" ]; then
+  BACKEND_ACTUAL_HASH="$(cat "$BACKEND_STAMP")"
+fi
+
+if [ ! -d "$BACKEND_DIR/.venv" ]; then
+  sync_backend_deps "后端首次启动 — 安装 Python 依赖(约 1-2 分钟)..."
+elif [ "$BACKEND_ACTUAL_HASH" != "$BACKEND_EXPECTED_HASH" ]; then
+  sync_backend_deps "后端依赖文件有变化 — 同步 Python 依赖..."
 fi
 
 if [ ! -d "$FRONTEND_DIR/node_modules" ]; then

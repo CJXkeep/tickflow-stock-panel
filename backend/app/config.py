@@ -1,6 +1,7 @@
 """全局配置 — 从环境变量 / .env 读取。"""
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -55,6 +56,30 @@ _PROJECT_ROOT = _project_root()
 _RESOURCE_ROOT = _resource_root()
 
 
+def _load_user_settings(data_dir: Path) -> dict:
+    """Read user-overridden settings without importing secrets_store.
+
+    config.py is imported by secrets_store, so this small reader keeps startup
+    provider overrides independent from that module.
+    """
+    p = data_dir / "user_data" / "secrets.json"
+    try:
+        if not p.exists():
+            return {}
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def _apply_user_settings(settings_obj: "Settings") -> None:
+    """Apply safe user settings that should override .env on next startup."""
+    data = _load_user_settings(settings_obj.data_dir)
+    provider = str(data.get("data_provider") or "").strip().lower()
+    if provider in {"tickflow", "akshare"}:
+        settings_obj.data_provider = provider
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=str(_RESOURCE_ROOT / ".env") if not _IS_FROZEN else ".env",
@@ -64,6 +89,15 @@ class Settings(BaseSettings):
 
     # TickFlow
     tickflow_api_key: str = Field(default="", description="留空启用 free 模式")
+
+    # Data provider
+    data_provider: str = Field(default="tickflow", description="tickflow / akshare")
+    fallback_provider: str = Field(default="baostock", description="备用免费数据源标识")
+    akshare_initial_years: int = Field(default=3, ge=1, le=10)
+    akshare_timeout_seconds: int = Field(default=20, ge=5, le=120)
+    akshare_retry_count: int = Field(default=3, ge=0, le=10)
+    akshare_max_workers: int = Field(default=8, ge=1, le=32)
+    akshare_write_batch_size: int = Field(default=64, ge=1, le=512)
 
     # AI
     ai_provider: str = "openai_compat"
@@ -101,5 +135,10 @@ class Settings(BaseSettings):
         from app import secrets_store
         return not secrets_store.get_tickflow_key()
 
+    @property
+    def provider_is_akshare(self) -> bool:
+        return self.data_provider.strip().lower() == "akshare"
+
 
 settings = Settings()
+_apply_user_settings(settings)

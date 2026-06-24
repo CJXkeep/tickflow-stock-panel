@@ -7,6 +7,7 @@ from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from app.config import settings
 from app.indicators.pipeline import compute_enriched_single
 from app.services import kline_sync
 
@@ -120,6 +121,8 @@ def get_daily(
     df = repo.get_daily(symbol, start, end)
 
     if df.is_empty():
+        if settings.provider_is_akshare:
+            return {"symbol": symbol, "name": stock_name, "stock_info": stock_info, "rows": [], "source": "none"}
         try:
             raw = kline_sync.sync_daily_batch([symbol], count=days + 30)
         except Exception as e:
@@ -337,6 +340,11 @@ def get_minute(
     if trade_date is None:
         trade_date = repo.latest_minute_date(symbol)
     if trade_date is None:
+        if settings.provider_is_akshare:
+            return {
+                "symbol": symbol, "name": stock_name, "stock_info": stock_info,
+                "date": str(date.today()), "rows": [], "source": "none",
+            }
         # 本地无任何分钟K，尝试从 TickFlow 拉取当天
         trade_date = date.today()
         df = kline_sync.fetch_minute_single(symbol, trade_date)
@@ -373,6 +381,12 @@ def get_minute(
             "date": str(trade_date), "rows": df.to_dicts(), "source": "local",
         }
 
+    if settings.provider_is_akshare:
+        return {
+            "symbol": symbol, "name": stock_name, "stock_info": stock_info,
+            "date": str(trade_date), "rows": [], "source": "none",
+        }
+
     # 本地不完整或无数据 → 从 TickFlow 实时拉取
     live_df = kline_sync.fetch_minute_single(symbol, trade_date)
     return {
@@ -389,6 +403,9 @@ def sync_symbol(
     days: int = Query(250, ge=10, le=2000),
 ):
     """手动触发单股同步(Free 用户在 K 线页用)。"""
+    if settings.provider_is_akshare:
+        raise HTTPException(status_code=403, detail="AkShare 模式请使用数据页主同步")
+
     repo = request.app.state.repo
     capset = request.app.state.capabilities
     n = kline_sync.sync_and_persist_daily_batch([symbol], repo, capset, count=days)
@@ -401,6 +418,9 @@ def sync_batch(
     symbols: list[str],
     days: int = Query(250, ge=10, le=2000),
 ):
+    if settings.provider_is_akshare:
+        raise HTTPException(status_code=403, detail="AkShare 模式请使用数据页主同步")
+
     repo = request.app.state.repo
     capset = request.app.state.capabilities
     n = kline_sync.sync_and_persist_daily_batch(symbols, repo, capset, count=days)
@@ -419,6 +439,9 @@ def refresh_views(request: Request):
 @router.post("/sync_minute")
 async def sync_minute(request: Request):
     """手动触发分钟 K 同步(全市场)。返回 pipeline job_id 可轮询进度。"""
+    if settings.provider_is_akshare:
+        raise HTTPException(status_code=403, detail="AkShare 模式 Phase 1 暂不支持分钟 K")
+
     import asyncio
 
     from app.services.pipeline_jobs import job_store
@@ -488,6 +511,9 @@ async def extend_history(request: Request):
     body: { "value": int, "unit": "day"|"month"|"year" }
     返回 job_id,可轮询 /api/pipeline/jobs 查看进度。
     """
+    if settings.provider_is_akshare:
+        raise HTTPException(status_code=403, detail="AkShare 模式 Phase 1 暂不支持扩展历史,请使用数据页主同步")
+
     import asyncio
     import traceback as _tb
     try:
@@ -639,6 +665,9 @@ async def extend_minute_history(request: Request):
     - month 单位:1~6 月(每月按 30 天计,即最多 180 天)—— 仅 Expert+ 可用
     返回 job_id,可轮询 /api/pipeline/jobs 查看进度。
     """
+    if settings.provider_is_akshare:
+        raise HTTPException(status_code=403, detail="AkShare 模式 Phase 1 暂不支持分钟 K")
+
     import asyncio
     import traceback as _tb
     try:

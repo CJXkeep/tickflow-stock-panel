@@ -4,6 +4,7 @@ from __future__ import annotations
 from fastapi import APIRouter
 
 from app import __version__
+from app.config import settings
 from app.tickflow import client as tf_client
 from app.tickflow.policy import detect_capabilities, tier_label
 
@@ -15,8 +16,9 @@ def health() -> dict:
     return {
         "status": "ok",
         "version": __version__,
+        "provider": settings.data_provider.strip().lower(),
         # 三态: none(无key/无效) / free(免费key) / api_key(付费档)
-        "mode": tf_client.current_mode(),
+        "mode": "none" if settings.provider_is_akshare else tf_client.current_mode(),
     }
 
 
@@ -26,6 +28,7 @@ def capabilities() -> dict:
     capset = detect_capabilities()
     return {
         "label": tier_label(),
+        "provider": settings.data_provider.strip().lower(),
         "capabilities": capset.to_dict(),
     }
 
@@ -36,5 +39,6 @@ def redetect() -> dict:
     capset = detect_capabilities(force=True)
     return {
         "label": tier_label(),
+        "provider": settings.data_provider.strip().lower(),
         "capabilities": capset.to_dict(),
     }

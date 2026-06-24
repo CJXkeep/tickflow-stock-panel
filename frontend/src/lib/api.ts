@@ -31,6 +31,7 @@ export interface CapabilityLimits {
 
 export interface CapabilitiesResponse {
   label: string
+  provider?: string
   capabilities: Record<string, CapabilityLimits>
 }
 
@@ -548,7 +549,14 @@ export interface EndpointManifest {
   source?: 'remote' | 'fallback'
 }
 
+export type DataProviderName = 'tickflow' | 'akshare'
+
 export interface SettingsState {
+  data_provider: DataProviderName | string
+  configured_data_provider?: DataProviderName | string
+  provider_label: string
+  configured_provider_label?: string
+  data_provider_restart_required?: boolean
   mode: 'none' | 'free' | 'api_key'
   tickflow_api_key_masked: string
   has_tickflow_key: boolean
@@ -581,8 +589,21 @@ export interface SaveTickflowKeyResult {
   capabilities_count?: number
 }
 
+export interface SaveDataProviderResult {
+  ok: boolean
+  data_provider: DataProviderName | string
+  configured_data_provider: DataProviderName | string
+  provider_label: string
+  configured_provider_label: string
+  data_provider_restart_required: boolean
+  restart_required: boolean
+  changed?: boolean
+  capabilities_count?: number
+}
+
 export interface Preferences {
   realtime_quotes_enabled: boolean
+  realtime_allowed?: boolean
   indices_nav_pinned: boolean
   minute_sync_enabled: boolean
   minute_sync_days: number
@@ -621,6 +642,11 @@ export const api = {
   health: () => request<{ status: string; version: string; mode: string }>('/health'),
 
   settings: () => request<SettingsState>('/api/settings'),
+  saveDataProvider: (data_provider: DataProviderName) =>
+    request<SaveDataProviderResult>('/api/settings/data-provider', {
+      method: 'PUT',
+      body: JSON.stringify({ data_provider }),
+    }),
   saveTickflowKey: (api_key: string) =>
     request<SaveTickflowKeyResult>('/api/settings/tickflow-key', {
       method: 'POST',
@@ -649,7 +675,7 @@ export const api = {
       body: JSON.stringify({ minute_sync_enabled: enabled, minute_sync_days: days }),
     }),
   updateRealtimeQuotes: (enabled: boolean) =>
-    request<{ realtime_quotes_enabled: boolean }>('/api/settings/preferences/realtime-quotes', {
+    request<{ realtime_quotes_enabled: boolean; realtime_allowed: boolean }>('/api/settings/preferences/realtime-quotes', {
       method: 'PUT',
       body: JSON.stringify({ realtime_quotes_enabled: enabled }),
     }),

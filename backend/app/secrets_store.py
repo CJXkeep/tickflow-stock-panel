@@ -14,6 +14,8 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
+_DATA_PROVIDERS = {"tickflow", "akshare"}
+
 
 def _path() -> Path:
     from app.config import settings
@@ -85,6 +87,19 @@ def get_ai_config(key: str, default: str = "") -> str:
         return val
     from app.config import settings
     return getattr(settings, key, default) or default
+
+
+def normalize_data_provider(value: str | None) -> str:
+    provider = str(value or "").strip().lower()
+    return provider if provider in _DATA_PROVIDERS else ""
+
+
+def get_data_provider(default: str = "tickflow") -> str:
+    """取用户保存的数据源;无有效保存值时回退到当前配置。"""
+    saved = normalize_data_provider(load().get("data_provider"))
+    if saved:
+        return saved
+    return normalize_data_provider(default) or "tickflow"
 
 
 def mask(key: str, prefix: int = 4, suffix: int = 4) -> str:

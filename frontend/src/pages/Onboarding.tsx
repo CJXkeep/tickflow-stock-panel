@@ -227,6 +227,8 @@ function KeyStep({ onNext, onSkip, onBack }: { onNext: () => void; onSkip: () =>
   const [revealing, setRevealing] = useState(false)
   const [copiedCode, setCopiedCode] = useState(false)
   const [saved, setSaved] = useState(false)
+  const isAkShare = settings.data?.data_provider === 'akshare'
+  const providerLabel = settings.data?.provider_label ?? 'TickFlow'
 
   const save = useMutation({
     mutationFn: () => api.saveTickflowKey(keyInput.trim()),
@@ -243,7 +245,7 @@ function KeyStep({ onNext, onSkip, onBack }: { onNext: () => void; onSkip: () =>
   })
 
   // 已配置 key —— 免费档或付费档都算(只要不是无档 none)
-  const alreadyHasKey = settings.data?.mode !== 'none' && settings.data?.mode !== undefined
+  const alreadyHasKey = !!settings.data?.has_tickflow_key || (settings.data?.mode !== 'none' && settings.data?.mode !== undefined)
 
   return (
     <div>
@@ -254,13 +256,15 @@ function KeyStep({ onNext, onSkip, onBack }: { onNext: () => void; onSkip: () =>
         <h2 className="text-xl font-bold text-foreground">配置 TickFlow API Key</h2>
       </div>
       <p className="mt-2.5 text-sm text-secondary leading-relaxed">
-        Key 决定你能使用的数据范围。没有 Key 也能以<span className="font-medium text-foreground"> 基础模式 </span>
-        使用历史日K;配置有效 Key 后可解锁实时行情、批量同步等扩展能力。
+        当前数据源为<span className="font-medium text-foreground"> {providerLabel} </span>。
+        {isAkShare
+          ? 'TickFlow Key 可跳过;仅在切回 TickFlow 数据源时用于 TickFlow 能力。'
+          : <>Key 决定你能使用的数据范围。没有 Key 也能以<span className="font-medium text-foreground"> 基础模式 </span>使用历史日K;配置有效 Key 后可解锁实时行情、批量同步等扩展能力。</>}
       </p>
 
       {/* 注册引导 */}
       <div className="mt-5 rounded-card border border-border bg-surface/80 backdrop-blur-sm p-4 text-xs text-secondary leading-relaxed">
-        还没有 Key?前往{' '}
+        {isAkShare ? '需要 TickFlow 能力时可前往' : '还没有 Key?前往'}{' '}
         <a
           href="https://tickflow.org/auth/register?ref=V3KDKGXPEA"
           target="_blank"
@@ -371,7 +375,7 @@ function KeyStep({ onNext, onSkip, onBack }: { onNext: () => void; onSkip: () =>
             disabled={save.isPending}
             className="px-4 h-9 rounded-btn text-sm text-secondary hover:text-foreground transition-colors disabled:opacity-50"
           >
-            {alreadyHasKey ? '下一步' : '暂不配置'}
+            {alreadyHasKey ? '下一步' : isAkShare ? '跳过 TickFlow Key' : '暂不配置'}
           </button>
           <button
             onClick={() => keyInput.trim() && save.mutate()}
@@ -398,9 +402,12 @@ function KeyStep({ onNext, onSkip, onBack }: { onNext: () => void; onSkip: () =>
 function ResultStep({ onNext, onBack }: { onNext: () => void; onBack: () => void }) {
   const settings = useSettings()
   const caps = useCapabilities()
+  const isAkShare = settings.data?.data_provider === 'akshare'
+  const providerLabel = settings.data?.provider_label ?? 'TickFlow'
 
   // 是否配置成功 —— 免费档(free)或付费档(api_key)都算;无档(none)算未配置
   const hasKey = settings.data?.mode === 'free' || settings.data?.mode === 'api_key'
+  const hasProviderCaps = isAkShare || hasKey
   const capList = caps.data ? Object.entries(caps.data.capabilities) : []
 
   return (
@@ -412,12 +419,12 @@ function ResultStep({ onNext, onBack }: { onNext: () => void; onBack: () => void
         <h2 className="text-xl font-bold text-foreground">能力探测结果</h2>
       </div>
 
-      {hasKey ? (
+      {hasProviderCaps ? (
         <>
           <p className="mt-2.5 text-sm text-secondary leading-relaxed">
-            Key 已生效,以下是你当前可用的全部能力。后续可在
-            <span className="text-foreground font-medium"> 设置 → 账户 </span>
-            中重新检测或更换 Key。
+            {isAkShare
+              ? <>当前数据源为<span className="text-foreground font-medium"> {providerLabel} </span>,以下是当前可用能力。</>
+              : <>Key 已生效,以下是你当前可用的全部能力。后续可在<span className="text-foreground font-medium"> 设置 → 账户 </span>中重新检测或更换 Key。</>}
           </p>
 
           <div className="mt-5 rounded-card border border-border bg-surface/80 backdrop-blur-sm p-5">
