@@ -204,7 +204,7 @@ export function ScreenerTable({
                       ? 'border-accent/40 bg-accent/10 text-accent'
                       : 'border-border text-muted hover:border-accent/40 hover:text-accent'
                     }`}
-                  title={inWatchlist ? '移出自选' : '加入自选'}
+                  title={inWatchlist ? '移出观察池' : '加入观察池'}
                 >
                   {inWatchlist ? <Check className="h-3 w-3" /> : <Plus className="h-3 w-3" />}
                 </button>

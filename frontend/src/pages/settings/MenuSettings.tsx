@@ -27,23 +27,24 @@ interface NavEntry {
   id: string
   label: string
   type: 'builtin' | 'analysis'
+  group: 'primary' | 'context'
   visible: boolean
 }
 
 const BUILTIN_PAGES: NavEntry[] = [
-  { id: '/', label: '看板', type: 'builtin', visible: true },
-  { id: '/watchlist', label: '自选', type: 'builtin', visible: true },
-  { id: '/screener', label: '策略', type: 'builtin', visible: true },
-  { id: '/backtest', label: '回测', type: 'builtin', visible: true },
-  { id: '/limit-ladder', label: '连板梯队', type: 'builtin', visible: true },
-  { id: '/concept-analysis', label: '概念分析', type: 'builtin', visible: true },
-  { id: '/industry-analysis', label: '行业分析', type: 'builtin', visible: true },
-  { id: '/stock-analysis', label: '个股分析', type: 'builtin', visible: true },
-  { id: '/financials', label: '财务', type: 'builtin', visible: true },
-  { id: '/indices', label: '指数', type: 'builtin', visible: true },
-  { id: '/trading', label: '交易', type: 'builtin', visible: true },
-  { id: '/monitor', label: '监控中心', type: 'builtin', visible: true },
-  { id: '/data', label: '数据', type: 'builtin', visible: true },
+  { id: '/', label: '复盘', type: 'builtin', group: 'primary', visible: true },
+  { id: '/watchlist', label: '观察池', type: 'builtin', group: 'primary', visible: true },
+  { id: '/screener', label: '策略', type: 'builtin', group: 'primary', visible: true },
+  { id: '/backtest', label: '回测', type: 'builtin', group: 'primary', visible: true },
+  { id: '/monitor', label: '监控', type: 'builtin', group: 'primary', visible: true },
+  { id: '/data', label: '数据', type: 'builtin', group: 'primary', visible: true },
+  { id: '/limit-ladder', label: '连板梯队', type: 'builtin', group: 'context', visible: true },
+  { id: '/concept-analysis', label: '概念分析', type: 'builtin', group: 'context', visible: true },
+  { id: '/industry-analysis', label: '行业分析', type: 'builtin', group: 'context', visible: true },
+  { id: '/stock-analysis', label: '个股分析', type: 'builtin', group: 'context', visible: true },
+  { id: '/financials', label: '财务', type: 'builtin', group: 'context', visible: true },
+  { id: '/indices', label: '指数', type: 'builtin', group: 'context', visible: true },
+  { id: '/trading', label: '交易', type: 'builtin', group: 'context', visible: true },
 ]
 
 // ── Sortable row ──
@@ -97,9 +98,13 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
       </div>
       <div>
         <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-[11px] ${
-          entry.type === 'analysis' ? 'bg-accent/10 text-accent' : 'bg-elevated text-muted'
+          entry.type === 'analysis'
+            ? 'bg-accent/10 text-accent'
+            : entry.group === 'primary'
+              ? 'bg-emerald-500/10 text-emerald-400'
+              : 'bg-elevated text-muted'
         }`}>
-          {entry.type === 'builtin' ? '内置' : '扩展'}
+          {entry.type === 'analysis' ? '扩展' : entry.group === 'primary' ? '主线' : '辅助'}
         </span>
       </div>
       <div className="flex justify-center">
@@ -134,7 +139,7 @@ function SortableItem({ entry, hidden, onToggleHidden, badgeEnabled, onToggleBad
           </Link>
         )}
       </div>
-      {/* 第 6 列: 徽标开关 (仅监控中心) */}
+      {/* 第 6 列: 徽标开关 (仅监控) */}
       <div className="flex justify-center">
         {onToggleBadge && (
           <button
@@ -165,6 +170,7 @@ export function SettingsMenuSettingsPanel() {
     id: m.id,
     label: m.label,
     type: 'analysis' as const,
+    group: 'context' as const,
     visible: m.visible,
   }))
 
@@ -191,7 +197,18 @@ export function SettingsMenuSettingsPanel() {
     return ordered
   }, [prefs?.nav_order, analysisEntries])
 
-  const hiddenSet = useMemo(() => new Set(prefs?.nav_hidden ?? []), [prefs?.nav_hidden])
+  const hiddenSet = useMemo(() => {
+    const stored = new Set(prefs?.nav_hidden ?? [])
+    const saved = prefs?.nav_order ?? []
+    const contextIds = new Set(allEntries.filter(e => e.group === 'context').map(e => e.id))
+    const hasContextVisibilityPrefs =
+      saved.some(id => contextIds.has(id)) ||
+      [...stored].some(id => contextIds.has(id))
+    if (!hasContextVisibilityPrefs) {
+      for (const id of contextIds) stored.add(id)
+    }
+    return stored
+  }, [prefs?.nav_hidden, prefs?.nav_order, allEntries])
 
   // Local order state for optimistic drag updates
   const [localOrder, setLocalOrder] = useState<string[] | null>(null)
@@ -248,7 +265,7 @@ export function SettingsMenuSettingsPanel() {
     saveNavHidden.mutate([...next])
   }
 
-  // 监控中心徽标开关 (localStorage)
+  // 监控徽标开关 (localStorage)
   const [badgeEnabled, setBadgeEnabled] = useState(() => {
     try { return localStorage.getItem('monitor_badge_enabled') !== '0' } catch { return true }
   })
@@ -263,9 +280,9 @@ export function SettingsMenuSettingsPanel() {
     <div className="max-w-5xl space-y-6">
       <section className="rounded-2xl border border-border bg-surface p-6 bg-[radial-gradient(circle_at_top_right,rgba(59,130,246,0.12),transparent_38%)]">
         <div className="text-[11px] uppercase tracking-[0.2em] text-accent/80">菜单设置</div>
-        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">调整左侧菜单顺序</h2>
+        <h2 className="mt-2 text-2xl font-semibold tracking-tight text-foreground">管理工作流入口</h2>
         <p className="mt-2 max-w-3xl text-sm leading-6 text-secondary">
-          拖动左侧手柄调整菜单排列顺序，点击眼睛图标控制菜单在侧边栏中的显示或隐藏。
+          默认侧边栏只保留复盘、观察池、策略、回测、监控和数据。辅助页面仍可在这里恢复显示，适合从复盘、策略或个股上下文中临时进入。
         </p>
       </section>
 

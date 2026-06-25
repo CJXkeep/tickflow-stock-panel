@@ -24,8 +24,8 @@ import { DepthConfigContent } from '@/components/data/DepthConfigCard'
 
 // 页面 → 显示名
 const PAGE_LABELS: Record<string, string> = {
-  'overview-market': '看板',
-  watchlist: '自选页',
+  'overview-market': '复盘',
+  watchlist: '观察池',
   'limit-ladder': '连板梯队',
 }
 
@@ -237,16 +237,16 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
 
       {/* ========== 右列 ========== */}
       <div className="space-y-6">
-        {/* 策略监控已迁移至监控中心 */}
+        {/* 策略监控已迁移至监控 */}
         <Card icon={Shield} title="策略监控">
           <p className="text-xs text-secondary mb-3">
-            策略监控、个股信号监控、价格监控已统一到「监控中心」页面,支持灵活配置触发条件、冷却期和作用范围。
+            策略监控、个股信号监控、价格监控已统一到「监控」页面,支持灵活配置触发条件、冷却期和作用范围。
           </p>
           <a
             href="#/monitor"
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-btn bg-accent/15 text-accent text-xs font-medium hover:bg-accent/25 transition-colors"
           >
-            前往监控中心配置 →
+            前往监控配置 →
           </a>
           <div className="mt-3 pt-3 border-t border-border">
             <ToggleRow

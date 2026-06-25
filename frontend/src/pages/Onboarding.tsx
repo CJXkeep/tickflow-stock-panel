@@ -37,7 +37,7 @@ const STEPS = ['欢迎', '配置 Key', '能力探测', '完成'] as const
 const BRAND = '#8B5CF6'
 
 const HIGHLIGHTS = [
-  { icon: LineChart, title: '看板与自选', desc: '实时行情、MA/MACD 指标、自定义自选列表', tint: 'text-accent' },
+  { icon: LineChart, title: '复盘与观察池', desc: '实时行情、MA/MACD 指标、自定义观察列表', tint: 'text-accent' },
   { icon: ScanSearch, title: '策略选股', desc: '内置多套选股策略,一键扫描全市场命中', tint: 'text-bull' },
   { icon: Flame, title: '连板梯队', desc: '涨停板梯队、概念行业热度、市场情绪一览', tint: 'text-warning' },
   { icon: Radar, title: '实时监控', desc: '自定义条件 / 策略监控,触发即推送告警', tint: 'text-bear' },

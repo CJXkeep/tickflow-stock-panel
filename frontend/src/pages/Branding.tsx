@@ -71,7 +71,7 @@ const VARIANTS: Variant[] = [
 ]
 
 const MOCK_NAV = [
-  { icon: Star, label: '自选' },
+  { icon: Star, label: '观察池' },
   { icon: LineChart, label: 'K 线' },
   { icon: ScanSearch, label: '策略' },
   { icon: History, label: '回测' },

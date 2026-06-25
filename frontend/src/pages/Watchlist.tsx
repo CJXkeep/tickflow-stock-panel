@@ -281,7 +281,7 @@ function StockSearchBox({
                         ? 'text-accent bg-accent/10 cursor-default'
                         : 'text-muted hover:text-accent hover:bg-accent/10'
                     }`}
-                    title={inWatchlist ? '已加自选' : '加入自选'}
+                    title={inWatchlist ? '已在观察池' : '加入观察池'}
                   >
                     {inWatchlist ? <Check className="h-3.5 w-3.5" /> : <Plus className="h-3.5 w-3.5" />}
                   </button>
@@ -720,7 +720,7 @@ export function Watchlist() {
   return (
     <div className="flex flex-col h-full">
       <PageHeader
-        title="自选股"
+        title="观察池"
         subtitle={`${sortedRows.length}/${allSymbols.length} 只`}
         right={
           <div className="flex items-center gap-2">
@@ -773,7 +773,7 @@ export function Watchlist() {
                 <button
                   onClick={() => setConfirmClear(true)}
                   className="inline-flex items-center justify-center h-8 w-8 rounded-btn bg-danger/10 text-danger hover:bg-danger/20 transition-colors duration-150 ease-smooth"
-                  title="清空自选"
+                  title="清空观察池"
                 >
                   <Trash2 className="h-4 w-4" />
                 </button>
@@ -860,13 +860,13 @@ export function Watchlist() {
         <div className="px-5 py-3">
           {/* 列表 */}
           {list.isLoading && <div className="text-sm text-muted">加载中…</div>}
-          {list.isError && <div className="text-sm text-danger">读取自选失败</div>}
+          {list.isError && <div className="text-sm text-danger">读取观察池失败</div>}
 
           {allSymbols.length === 0 ? (
             <EmptyState
               icon={Star}
-              title="自选股为空"
-              hint="点击右上角搜索按钮查找并预览标的，进入个股详情后可添加到自选。"
+              title="观察池为空"
+              hint="点击右上角搜索按钮查找并预览标的，进入个股详情后可加入观察池。"
             />
           ) : viewMode === 'table' ? (
             <StockDataTable
@@ -1058,9 +1058,9 @@ export function Watchlist() {
               transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
               className="relative w-[90vw] max-w-[380px] rounded-card border border-border bg-base shadow-2xl p-6"
             >
-              <h3 className="text-sm font-medium text-foreground mb-2">确认清空自选</h3>
+              <h3 className="text-sm font-medium text-foreground mb-2">确认清空观察池</h3>
               <p className="text-xs text-secondary mb-5">
-                将移除全部 {allSymbols.length} 只自选股，此操作不可恢复。
+                将移除全部 {allSymbols.length} 只观察标的，此操作不可恢复。
               </p>
               <div className="flex items-center justify-end gap-2">
                 <button

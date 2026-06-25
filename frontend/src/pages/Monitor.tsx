@@ -97,7 +97,7 @@ export function Monitor() {
 
   return (
     <div className="flex flex-col h-full">
-      <PageHeader title="监控中心" subtitle="实时信号与规则管理" />
+      <PageHeader title="监控" subtitle="计划提醒与规则管理" />
       <div className="flex-1 min-h-0 px-5 py-4">
         <div className="mx-auto flex h-full max-w-7xl flex-col gap-4 lg:flex-row">
           {/* 左栏: 触发记录 */}

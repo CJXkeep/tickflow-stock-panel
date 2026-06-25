@@ -478,7 +478,7 @@ export function Screener() {
     const symbols = displayRows.map((r: any) => r.symbol)
     batchAdd.mutate(symbols, {
       onSuccess: (data) => {
-        setBatchMsg(`已添加 ${data.added} 只到自选`)
+        setBatchMsg(`已添加 ${data.added} 只到观察池`)
         setTimeout(() => setBatchMsg(''), 3000)
       },
       onError: () => {
@@ -697,7 +697,7 @@ export function Screener() {
                         hover:bg-accent/20 disabled:opacity-50 transition-colors duration-150 cursor-pointer"
                     >
                       <Star className="h-3 w-3" />
-                      {batchAdd.isPending ? '添加中…' : '批量加自选'}
+                      {batchAdd.isPending ? '添加中…' : '批量加观察池'}
                     </button>
                   )}
                   <button

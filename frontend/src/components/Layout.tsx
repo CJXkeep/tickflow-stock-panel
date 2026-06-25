@@ -54,11 +54,16 @@ const CORE_INDEXES = [
 
 type CoreIndex = (typeof CORE_INDEXES)[number]
 
-const nav = [
-  { to: '/',                label: '看板',     icon: LayoutDashboard },
-  { to: '/watchlist',  label: '自选',   icon: Star },
-  { to: '/screener',   label: '策略',   icon: ScanSearch },
-  { to: '/backtest',   label: '回测',   icon: History },
+const primaryNav = [
+  { to: '/', label: '复盘', icon: LayoutDashboard },
+  { to: '/watchlist', label: '观察池', icon: Star },
+  { to: '/screener', label: '策略', icon: ScanSearch },
+  { to: '/backtest', label: '回测', icon: History },
+  { to: '/monitor', label: '监控', icon: RadioTower },
+  { to: '/data', label: '数据', icon: Database },
+] as const
+
+const secondaryNav = [
   { to: '/limit-ladder', label: '连板梯队', icon: Flame },
   { to: '/concept-analysis', label: '概念分析', icon: Layers3 },
   { to: '/industry-analysis', label: '行业分析', icon: Landmark },
@@ -66,8 +71,6 @@ const nav = [
   { to: '/financials', label: '财务',   icon: FileText },
   { to: '/indices', label: '指数', icon: BarChart3 },
   { to: '/trading', label: '交易', icon: Cable },
-  { to: '/monitor', label: '监控中心', icon: RadioTower },
-  { to: '/data',       label: '数据',   icon: Database },
 ] as const
 
 function fmtIndexValue(v: number | null | undefined) {
@@ -87,7 +90,7 @@ function indexPctClass(v: number | null | undefined) {
   return n > 0 ? 'text-bull' : 'text-bear'
 }
 
-/** 监控中心未读徽标 — 仅在非监控页且有未读时显示。 */
+/** 监控未读徽标 — 仅在非监控页且有未读时显示。 */
 function MonitorBadge({ active }: { active: boolean }) {
   const unread = useUnreadAlerts()
   // 尊重用户设置: 可在菜单设置里关闭数字提示
@@ -283,7 +286,7 @@ export function Layout() {
   // none/free 档(无实时行情权限)→ rank < starter(1)
   const isFreeTier = tierRank(caps?.label ?? '') < 1
 
-  // 轮询触发记录总数 → 更新监控中心徽标 (每 15 秒)
+  // 轮询触发记录总数 → 更新监控徽标 (每 15 秒)
   const alertsTotalQuery = useQuery({
     queryKey: ['alerts-total'],
     queryFn: () => api.alertsList({ days: 7, limit: 1 }),
@@ -302,8 +305,22 @@ export function Layout() {
     .filter(m => m.visible)
     .map(m => ({ to: `/analysis/${m.id}`, label: m.label, icon: m.icon === 'tags' ? Tags : BarChart3 }))
 
-  const allNav = [...nav, ...analysisNav]
   const savedOrder = prefs?.nav_order ?? []
+  const hiddenIds = new Set(prefs?.nav_hidden ?? [])
+  const contextIds = new Set([
+    ...secondaryNav.map(n => n.to),
+    ...analysisNav.map(n => n.to),
+    ...analysisNav.map(n => n.to.replace(/^\/analysis\//, '')),
+  ])
+  const hasCustomNavPrefs = savedOrder.length > 0 || hiddenIds.size > 0
+  const hasContextVisibilityPrefs =
+    savedOrder.some(id => contextIds.has(id) || contextIds.has(`/analysis/${id}`)) ||
+    [...hiddenIds].some(id => contextIds.has(id) || contextIds.has(`/analysis/${id}`))
+  const allNav = hasCustomNavPrefs ? [...primaryNav, ...secondaryNav, ...analysisNav] : [...primaryNav]
+  const effectiveHiddenIds = new Set(hiddenIds)
+  if (hasCustomNavPrefs && !hasContextVisibilityPrefs) {
+    for (const id of contextIds) effectiveHiddenIds.add(id)
+  }
 
   const navItems = savedOrder.length > 0
     ? (() => {
@@ -316,8 +333,7 @@ export function Layout() {
       })()
     : allNav
 
-  const hiddenIds = new Set(prefs?.nav_hidden ?? [])
-  const visibleNavItems = navItems.filter(n => !hiddenIds.has(n.to) && !hiddenIds.has(n.to.replace(/^\/analysis\//, '')))
+  const visibleNavItems = navItems.filter(n => !effectiveHiddenIds.has(n.to) && !effectiveHiddenIds.has(n.to.replace(/^\/analysis\//, '')))
 
   const handleToggle = async (enabled: boolean) => {
     // 开启时重新校验档位
@@ -392,7 +408,7 @@ export function Layout() {
                 <>
                   <Icon className="h-4 w-4 shrink-0" />
                   <span className="flex-1">{label}</span>
-                  {/* 监控中心徽标: 仅非监控页且有未读时显示 */}
+                  {/* 监控徽标: 仅非监控页且有未读时显示 */}
                   {to === '/monitor' && <MonitorBadge active={isActive} />}
                 </>
               )}

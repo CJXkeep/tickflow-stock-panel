@@ -77,7 +77,7 @@ function SectionTitle({ icon: Icon, title, hint }: { icon: typeof Activity; titl
   )
 }
 
-// 看板监控中心小组件 — 显示前 10 条触发记录 + 更多按钮
+// 复盘页监控小组件 — 显示前 10 条触发记录 + 更多按钮
 const _SOURCE_BADGE: Record<string, string> = {
   strategy: 'bg-amber-400/10 text-amber-400',
   signal: 'bg-accent/10 text-accent',
@@ -500,7 +500,7 @@ export function Dashboard() {
     return (
       <div className="flex h-full items-center justify-center bg-base">
         <div className="flex items-center gap-2 text-sm text-muted">
-          <Loader2 className="h-4 w-4 animate-spin" /> 加载市场看板…
+          <Loader2 className="h-4 w-4 animate-spin" /> 加载复盘工作台…
         </div>
       </div>
     )
@@ -510,7 +510,7 @@ export function Dashboard() {
     return (
       <div className="flex h-full items-center justify-center bg-base p-6">
         <div className="rounded-card border border-border bg-surface p-6 text-center">
-          <div className="text-sm text-danger">看板加载失败</div>
+          <div className="text-sm text-danger">复盘工作台加载失败</div>
           <button onClick={() => overview.refetch()} className="mt-3 rounded-btn bg-accent px-3 py-1.5 text-xs font-medium text-base">重试</button>
         </div>
       </div>
@@ -552,7 +552,7 @@ export function Dashboard() {
         <div className="mb-3 flex items-center gap-2 rounded-card border border-accent/40 bg-accent/10 px-3 py-2 text-xs">
           <Database className="h-4 w-4 shrink-0 text-accent" />
           <span className="text-secondary leading-relaxed">
-            看板暂无数据,请前往数据页面同步行情数据后查看。
+            复盘工作台暂无数据,请前往数据页面同步行情数据后查看。
           </span>
           <Link
             to="/data"
@@ -565,7 +565,10 @@ export function Dashboard() {
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-card border border-border bg-surface/85 px-3 py-2">
         <div className="flex items-center gap-2">
           <Gauge className="h-4 w-4 text-accent" />
-          <h1 className="text-base font-semibold text-foreground">市场看板</h1>
+          <div className="min-w-0">
+            <h1 className="text-base font-semibold text-foreground">复盘工作台</h1>
+            <p className="mt-0.5 text-[11px] text-muted">盘后研究 · 策略跟踪 · 明日计划</p>
+          </div>
           <span
             className="rounded-full border px-2 py-0.5 text-[10px] font-medium"
             style={{
@@ -618,7 +621,7 @@ export function Dashboard() {
         <main className="min-w-0 space-y-3">
           <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
             <section className="rounded-card border border-border bg-surface/80 p-2.5">
-              <SectionTitle icon={BarChart3} title="涨跌分布 / 广度" hint={`${data.breadth.total}只`} />
+              <SectionTitle icon={BarChart3} title="市场广度复盘" hint={`${data.breadth.total}只`} />
               <DistributionBars rows={data.distribution} />
               <div className="mt-2">
                 <BreadthBar data={data.breadth} />
@@ -639,7 +642,7 @@ export function Dashboard() {
 
             <section className="flex flex-col rounded-card border border-border bg-surface/80 p-2.5">
               <div>
-                <SectionTitle icon={LineChart} title="趋势强度" hint="均线/新高低" />
+                <SectionTitle icon={LineChart} title="趋势环境" hint="均线/新高低" />
                 <div className="grid grid-cols-3 gap-1.5">
                   <MiniMetric label="站上MA5" value={`${data.trend.above_ma5_pct.toFixed(0)}%`} cls="text-accent" />
                   <MiniMetric label="站上MA20" value={`${data.trend.above_ma20_pct.toFixed(0)}%`} cls="text-accent" />
@@ -650,7 +653,7 @@ export function Dashboard() {
                 </div>
               </div>
               <div className="mt-3 border-t border-border pt-2.5">
-                <SectionTitle icon={Target} title="实用监控" hint="盘中观察" />
+                <SectionTitle icon={Target} title="计划监控" hint="盘中观察" />
                 <div className="grid grid-cols-3 gap-1.5">
                   <MiniMetric label="炸板" value={`${data.limit.broken ?? 0}`} cls="text-warning" />
                   <MiniMetric label="跌停" value={`${data.limit.limit_down ?? 0}`} cls="text-bear" />
@@ -685,10 +688,10 @@ export function Dashboard() {
             <div className="mb-2 flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5">
                 <BellRing className="h-3.5 w-3.5 text-accent" />
-                <h2 className="text-xs font-semibold text-foreground">监控中心</h2>
-                <span className="font-mono text-[10px] text-muted">实时信号</span>
+                <h2 className="text-xs font-semibold text-foreground">监控</h2>
+                <span className="font-mono text-[10px] text-muted">计划提醒</span>
               </div>
-              <Link to="/monitor" className="inline-flex items-center justify-center h-5 w-5 rounded text-muted hover:text-accent hover:bg-accent/10 transition-colors" title="进入监控中心">
+              <Link to="/monitor" className="inline-flex items-center justify-center h-5 w-5 rounded text-muted hover:text-accent hover:bg-accent/10 transition-colors" title="进入监控">
                 <ArrowUpRight className="h-3.5 w-3.5" />
               </Link>
             </div>
