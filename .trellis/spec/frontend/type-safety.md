@@ -1,51 +1,70 @@
 # Type Safety
 
-> Type safety patterns in this project.
+> Snapshot of type safety patterns in the frontend.
 
 ---
 
 ## Overview
 
-<!--
-Document your project's type safety conventions here.
-
-Questions to answer:
-- What type system do you use?
-- How are types organized?
-- What validation library do you use?
-- How do you handle type inference?
--->
-
-(To be filled by the team)
+The frontend uses TypeScript with API response interfaces concentrated in
+`frontend/src/lib/api.ts`. Runtime validation is light; the backend owns most
+schema validation through Pydantic, while the frontend uses TypeScript shapes
+and defensive optional fields.
 
 ---
 
 ## Type Organization
 
-<!-- Where types are defined, shared types vs local types -->
+- API response and request types live next to `api` methods in `api.ts`.
+- Shared table/column types live in focused lib modules such as
+  `list-columns.ts`, `stock-table.ts`, `watchlist-columns.ts`, and
+  `screener-columns.ts`.
+- Component-only prop types should remain local unless another file imports
+  them.
+- Use literal unions for UI modes, groups, and tabs when the value controls
+  rendering behavior.
 
-(To be filled by the team)
+Examples:
+
+```ts
+type NavGroup = 'primary' | 'context'
+type ViewMode = 'table' | 'card'
+```
 
 ---
 
 ## Validation
 
-<!-- Runtime validation patterns (Zod, Yup, io-ts, etc.) -->
+Backend responses may include nullable and optional fields. Frontend types
+should model that explicitly with `?` and `| null` where the backend can omit
+or null a value.
 
-(To be filled by the team)
+Use defensive rendering for market data:
+
+- Numeric values may be `null`, `undefined`, `NaN`, or unavailable.
+- Optional fields from extension data should not be assumed present.
+- Dynamic analysis menu ids may appear as bare ids or `/analysis/<id>` route
+  strings in preferences.
 
 ---
 
 ## Common Patterns
 
-<!-- Type utilities, generics, type guards -->
-
-(To be filled by the team)
+- `as const` for static navigation, tabs, or option lists.
+- `Record<string, T>` for dynamic backend dictionaries.
+- Index signatures only for genuinely dynamic rows, such as financial or
+  extension data records.
+- Narrow nullable values before formatting prices, percentages, and dates.
+- Keep route ids and API ids as strings; do not create enum migrations unless
+  both frontend and backend are updated together.
 
 ---
 
 ## Forbidden Patterns
 
-<!-- any, type assertions, etc. -->
-
-(To be filled by the team)
+- Do not introduce broad `any` for new stable API contracts.
+- Do not use type assertions to hide an uncertain backend payload shape.
+- Do not duplicate backend payload contracts in multiple components; put shared
+  response types in `api.ts` or a focused lib module.
+- Do not make product labels the source of truth for behavior. Use ids, routes,
+  or explicit literal fields.

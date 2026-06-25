@@ -1,51 +1,66 @@
 # Logging Guidelines
 
-> How logging is done in this project.
+> Snapshot of backend logging conventions.
 
 ---
 
 ## Overview
 
-<!--
-Document your project's logging conventions here.
+The backend uses Python's standard `logging` module. `main.py` configures the
+root format from `settings.log_level`:
 
-Questions to answer:
-- What logging library do you use?
-- What are the log levels and when to use each?
-- What should be logged?
-- What should NOT be logged (PII, secrets)?
--->
+```text
+%(asctime)s [%(levelname)s] %(name)s: %(message)s
+```
 
-(To be filled by the team)
+Each module should create a logger with:
+
+```python
+logger = logging.getLogger(__name__)
+```
 
 ---
 
 ## Log Levels
 
-<!-- When to use each level: debug, info, warn, error -->
-
-(To be filled by the team)
+- `info`: application lifecycle, cache refresh success, strategy engine load,
+  scheduler startup, meaningful completed jobs.
+- `warning`: degraded optional services, malformed local JSON, provider/API
+  failures that the app can survive, timeout fallbacks.
+- `debug`: expected missing local files/views during startup or optional dynamic
+  joins that are safe to skip.
+- `error` / `exception`: unexpected failures that prevent a requested operation
+  from completing and are not already represented by a clear API response.
 
 ---
 
 ## Structured Logging
 
-<!-- Log format, required fields -->
+Use parameterized logging instead of f-strings:
 
-(To be filled by the team)
+```python
+logger.warning("quote fetch timeout (%.1fs) for %d symbols", timeout_s, len(chunk))
+```
 
----
-
-## What to Log
-
-<!-- Important events to log -->
-
-(To be filled by the team)
+Include operational context such as symbol count, provider, date range, job
+name, strategy count, or elapsed time. Avoid dumping entire dataframes or large
+payloads.
 
 ---
 
-## What NOT to Log
+## What To Log
 
-<!-- Sensitive data, PII, secrets -->
+- Startup mode, provider, version, and active capability count.
+- Cache refresh dates and row counts.
+- Scheduler start/stop and job failures.
+- Provider failures, timeouts, and degraded fallbacks.
+- Malformed local JSON or ignored optional extension joins.
 
-(To be filled by the team)
+---
+
+## What NOT To Log
+
+- Raw API keys, AI keys, endpoint credentials, or secrets.
+- Full user preference files when they may contain operational details.
+- Large dataframe contents or complete API payloads.
+- Repeated per-row logs in hot paths.

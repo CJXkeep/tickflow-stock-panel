@@ -6,54 +6,60 @@
 
 ## Overview
 
-<!--
-Document your project's component conventions here.
+Frontend components are React function components using TypeScript and
+Tailwind utility classes. Shared surfaces live under `frontend/src/components`,
+while route-level pages live under `frontend/src/pages`.
 
-Questions to answer:
-- What component patterns do you use?
-- How are props defined?
-- How do you handle composition?
-- What accessibility standards apply?
--->
-
-(To be filled by the team)
+Prefer small page-local helper components for tightly scoped display logic, and
+shared components only when multiple pages genuinely reuse the same behavior.
+Examples of shared surfaces include `PageHeader`, `EmptyState`, stock table
+components, chart wrappers, and settings/data cards.
 
 ---
 
 ## Component Structure
 
-<!-- Standard structure of a component file -->
-
-(To be filled by the team)
+- Keep route-level pages as exported functions from `frontend/src/pages`.
+- Keep reusable UI primitives under `frontend/src/components`.
+- Keep page-specific helper components in the page file when they are not reused.
+- Use `lucide-react` icons for visible controls and page section affordances.
+- Avoid broad visual rewrites when the task is an information-architecture or
+  naming change.
 
 ---
 
 ## Props Conventions
 
-<!-- How props should be defined and typed -->
-
-(To be filled by the team)
+- Define local prop shapes inline for small page-local components.
+- Export prop types only when external callers need them.
+- Prefer explicit discriminating fields for UI grouping, such as
+  `group: 'primary' | 'context'`, over inferring behavior from label text.
+- Preserve existing callback names when the underlying API or storage still
+  uses legacy domain names; change user-visible labels separately.
 
 ---
 
 ## Styling Patterns
 
-<!-- How styles are applied (CSS modules, styled-components, Tailwind, etc.) -->
+Styling is Tailwind-first with project tokens such as `bg-base`, `bg-surface`,
+`text-foreground`, `text-muted`, `border-border`, `rounded-card`, and
+`rounded-btn`.
 
-(To be filled by the team)
+Operational pages should stay dense and work-focused. Use restrained copy and
+small supporting subtitles rather than large marketing blocks.
 
 ---
 
 ## Accessibility
 
-<!-- A11y requirements and patterns -->
-
-(To be filled by the team)
+Icon-only buttons should have `title` text that names the action. Navigation
+links should keep concise labels that fit the sidebar width.
 
 ---
 
 ## Common Mistakes
 
-<!-- Component-related mistakes your team has made -->
-
-(To be filled by the team)
+- Renaming the sidebar label but leaving page headers, empty states, tooltips,
+  or onboarding copy on the old product language.
+- Hiding a page from the sidebar by deleting routes or imports. Product trimming
+  should hide entry points first and preserve compatibility.

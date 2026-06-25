@@ -1,12 +1,14 @@
 # Backend Development Guidelines
 
-> Best practices for backend development in this project.
+> Snapshot of backend conventions for this project.
 
 ---
 
 ## Overview
 
-This directory contains guidelines for backend development. Fill in each file with your project's specific conventions.
+The backend is a Python 3.11 FastAPI application. It serves APIs, manages data
+sync jobs, stores local Parquet data, exposes market/strategy/backtest services,
+and optionally serves the built frontend as a SPA.
 
 ---
 
@@ -14,25 +16,33 @@ This directory contains guidelines for backend development. Fill in each file wi
 
 | Guide | Description | Status |
 |-------|-------------|--------|
-| [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |
-| [Database Guidelines](./database-guidelines.md) | ORM patterns, queries, migrations | To fill |
-| [Error Handling](./error-handling.md) | Error types, handling strategies | To fill |
-| [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
-| [Logging Guidelines](./logging-guidelines.md) | Structured logging, log levels | To fill |
+| [Directory Structure](./directory-structure.md) | Module organization and file layout | Active |
+| [Database Guidelines](./database-guidelines.md) | Parquet, DuckDB, Polars, JSON preferences | Active |
+| [Error Handling](./error-handling.md) | HTTP exceptions, fallbacks, capability errors | Active |
+| [Quality Guidelines](./quality-guidelines.md) | Code standards, validation, tests | Active |
+| [Logging Guidelines](./logging-guidelines.md) | Python logging conventions | Active |
 
 ---
 
-## How to Fill These Guidelines
+## Runtime Stack
 
-For each guideline file:
-
-1. Document your project's **actual conventions** (not ideals)
-2. Include **code examples** from your codebase
-3. List **forbidden patterns** and why
-4. Add **common mistakes** your team has made
-
-The goal is to help AI assistants and new team members understand how YOUR project works.
+- FastAPI + Uvicorn
+- Pydantic v2 and pydantic-settings
+- Polars, DuckDB, PyArrow, optional pandas at service boundaries
+- APScheduler for scheduled jobs
+- TickFlow SDK and AkShare provider support
+- PyInstaller / desktop mode path handling
 
 ---
 
-**Language**: All documentation should be written in **English**.
+## Validation Commands
+
+Preferred backend checks:
+
+```powershell
+uv run ruff check .
+uv run pytest
+```
+
+When `uv` is unavailable, use the project-local environment command that matches
+the current setup, but keep the same intent: lint plus tests.

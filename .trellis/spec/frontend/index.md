@@ -6,7 +6,9 @@
 
 ## Overview
 
-This directory contains guidelines for frontend development. Fill in each file with your project's specific conventions.
+This directory contains active frontend conventions for the TickFlow Stock Panel
+React application. These files describe current project practice, not generic
+frontend ideals.
 
 ---
 
@@ -14,25 +16,24 @@ This directory contains guidelines for frontend development. Fill in each file w
 
 | Guide | Description | Status |
 |-------|-------------|--------|
-| [Directory Structure](./directory-structure.md) | Module organization and file layout | To fill |
-| [Component Guidelines](./component-guidelines.md) | Component patterns, props, composition | To fill |
-| [Hook Guidelines](./hook-guidelines.md) | Custom hooks, data fetching patterns | To fill |
-| [State Management](./state-management.md) | Local state, global state, server state | To fill |
-| [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | To fill |
-| [Type Safety](./type-safety.md) | Type patterns, validation | To fill |
+| [Directory Structure](./directory-structure.md) | Module organization and file layout | Active |
+| [Component Guidelines](./component-guidelines.md) | Component patterns, props, composition | Active |
+| [Hook Guidelines](./hook-guidelines.md) | Custom hooks, data fetching patterns | Active |
+| [State Management](./state-management.md) | Local state, global state, server state | Active |
+| [Product Navigation](./product-navigation.md) | Sidebar IA, product naming, route compatibility | Active |
+| [Quality Guidelines](./quality-guidelines.md) | Code standards, forbidden patterns | Active |
+| [Type Safety](./type-safety.md) | Type patterns, validation | Active |
 
 ---
 
-## How to Fill These Guidelines
+## How to Use These Guidelines
 
-For each guideline file:
+Before changing frontend code, read the guide that matches the layer you are
+touching. For navigation, sidebar, route naming, or product-language work,
+always read `product-navigation.md` in addition to the component/state guides.
 
-1. Document your project's **actual conventions** (not ideals)
-2. Include **code examples** from your codebase
-3. List **forbidden patterns** and why
-4. Add **common mistakes** your team has made
-
-The goal is to help AI assistants and new team members understand how YOUR project works.
+When a task reveals a new convention or a repeated pitfall, update the relevant
+guide in the same change set.
 
 ---
 
