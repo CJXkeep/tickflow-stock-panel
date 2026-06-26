@@ -611,6 +611,7 @@ export interface Preferences {
   instruments_schedule: { hour: number; minute: number }
   enriched_batch_size: number
   index_daily_batch_size: number
+  focus_universe: FocusUniverseConfig
   limit_ladder_monitor_enabled: boolean
   depth_polling_interval: number
   depth_finalize_time: { hour: number; minute: number }
@@ -622,6 +623,25 @@ export interface Preferences {
   nav_order: string[]
   nav_hidden: string[]
   screener_auto_run: boolean
+}
+
+export interface FocusUniverseConfig {
+  sources: Record<string, boolean>
+  include_symbols: string[]
+  exclude_symbols: string[]
+  alert_limit: number
+  local_fallback_limit: number
+}
+
+export interface FocusUniversePreview {
+  config: FocusUniverseConfig
+  count: number
+  symbols: string[]
+  by_source: Record<string, string[]>
+  by_source_counts: Record<string, number>
+  excluded_symbols: string[]
+  fallback_used: string | null
+  source_labels: Record<string, string>
 }
 
 // ===== Strategy Alert =====
@@ -669,6 +689,12 @@ export const api = {
     }),
 
   preferences: () => request<Preferences>('/api/settings/preferences'),
+  focusUniverse: () => request<FocusUniversePreview>('/api/settings/preferences/focus-universe'),
+  updateFocusUniverse: (config: Partial<FocusUniverseConfig>) =>
+    request<FocusUniversePreview>('/api/settings/preferences/focus-universe', {
+      method: 'PUT',
+      body: JSON.stringify(config),
+    }),
   updateMinuteSync: (enabled: boolean, days: number) =>
     request<Preferences>('/api/settings/preferences/minute-sync', {
       method: 'PUT',

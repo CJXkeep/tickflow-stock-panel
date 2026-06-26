@@ -176,6 +176,73 @@ SSE_REFRESH_PAGES_DEFAULT = {
 }
 
 SIDEBAR_INDEX_SYMBOLS_DEFAULT = ["000001.SH", "399001.SZ", "399006.SZ", "000680.SH"]
+FOCUS_UNIVERSE_SOURCE_DEFAULTS = {
+    "watchlist": True,
+    "monitor_rules": True,
+    "strategy_tracking": True,
+    "recent_alerts": True,
+    "local_fallback": True,
+    "demo": True,
+}
+
+
+def _normalize_symbol_list(values: list[object] | None) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values or []:
+        symbol = str(value or "").strip().upper()
+        if symbol and symbol not in seen:
+            seen.add(symbol)
+            out.append(symbol)
+    return out
+
+
+def _clamped_int(value: object, default: int, min_value: int, max_value: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(min_value, min(max_value, parsed))
+
+
+def get_focus_universe_config() -> dict:
+    """返回关注范围配置。缺省值保持自动推导行为。"""
+    stored = load().get("focus_universe", {})
+    stored_sources = stored.get("sources", {}) if isinstance(stored, dict) else {}
+    sources = dict(FOCUS_UNIVERSE_SOURCE_DEFAULTS)
+    if isinstance(stored_sources, dict):
+        for key in sources:
+            if key in stored_sources:
+                sources[key] = bool(stored_sources[key])
+    alert_limit = stored.get("alert_limit", 200) if isinstance(stored, dict) else 200
+    local_fallback_limit = stored.get("local_fallback_limit", 30) if isinstance(stored, dict) else 30
+    return {
+        "sources": sources,
+        "include_symbols": _normalize_symbol_list(stored.get("include_symbols") if isinstance(stored, dict) else []),
+        "exclude_symbols": _normalize_symbol_list(stored.get("exclude_symbols") if isinstance(stored, dict) else []),
+        "alert_limit": _clamped_int(alert_limit, 200, 0, 1000),
+        "local_fallback_limit": _clamped_int(local_fallback_limit, 30, 0, 500),
+    }
+
+
+def set_focus_universe_config(config: dict) -> dict:
+    """保存关注范围配置,过滤未知来源并规范 symbol。"""
+    current = get_focus_universe_config()
+    incoming_sources = config.get("sources") if isinstance(config, dict) else None
+    if isinstance(incoming_sources, dict):
+        for key in current["sources"]:
+            if key in incoming_sources:
+                current["sources"][key] = bool(incoming_sources[key])
+    if isinstance(config, dict) and "include_symbols" in config:
+        current["include_symbols"] = _normalize_symbol_list(config.get("include_symbols"))
+    if isinstance(config, dict) and "exclude_symbols" in config:
+        current["exclude_symbols"] = _normalize_symbol_list(config.get("exclude_symbols"))
+    if isinstance(config, dict) and "alert_limit" in config:
+        current["alert_limit"] = _clamped_int(config.get("alert_limit"), 200, 0, 1000)
+    if isinstance(config, dict) and "local_fallback_limit" in config:
+        current["local_fallback_limit"] = _clamped_int(config.get("local_fallback_limit"), 30, 0, 500)
+    save({"focus_universe": current})
+    return get_focus_universe_config()
 
 
 def get_sse_refresh_pages() -> dict[str, bool]:

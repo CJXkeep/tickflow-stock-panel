@@ -13,6 +13,7 @@ import {
   Wifi,
   AlertTriangle,
   Info,
+  SlidersHorizontal,
 } from 'lucide-react'
 import { EndpointTestDialog } from '@/components/EndpointTestDialog'
 import { api, type ExtDataConfig } from '@/lib/api'
@@ -20,6 +21,7 @@ import {
   useCapabilities,
   useSettings,
   usePreferences,
+  useFocusUniverse,
   useQuoteStatus,
   useQuoteInterval,
   useDataStatus,
@@ -37,6 +39,7 @@ import { SettingsModal } from '@/components/data/SettingsModal'
 import { ScheduleEditor } from '@/components/data/ScheduleEditor'
 import { ExtendHistoryPanel } from '@/components/data/ExtendHistoryPanel'
 import { EnrichedRebuildPanel } from '@/components/data/EnrichedRebuildPanel'
+import { FocusUniversePanel } from '@/components/data/FocusUniversePanel'
 import { MinuteSyncConfig } from '@/components/data/MinuteSyncConfig'
 import { QuoteConfigCard } from '@/components/data/QuoteConfigCard'
 import { EnrichedSchemaModal } from '@/components/data/SchemaModal'
@@ -149,6 +152,7 @@ export function Data() {
   })
 
   const prefs = usePreferences()
+  const focusUniverse = useFocusUniverse()
   const minuteAuto = prefs.data?.minute_sync_enabled ?? false
   const pipelineSched = prefs.data?.pipeline_schedule ?? { hour: 15, minute: 30 }
   const instrumentsSched = prefs.data?.instruments_schedule ?? { hour: 9, minute: 10 }
@@ -190,6 +194,7 @@ export function Data() {
   const realtimeAllowed = prefs.data?.realtime_allowed ?? true
   const isAkShare = settings.data?.data_provider === 'akshare'
   const providerLabel = settings.data?.provider_label ?? 'TickFlow'
+  const focusCount = focusUniverse.data?.count ?? null
   const quoteStatus = useQuoteStatus()
   const toggleQuote = useToggleRealtimeQuotes()
 
@@ -307,6 +312,14 @@ export function Data() {
             {!hasData && !isLoading && (
               <span className="text-xs text-accent animate-pulse">首次使用请先同步关注范围</span>
             )}
+            <button
+              onClick={() => setOpenSettings(v => v === 'focus' ? null : 'focus')}
+              title="设置关注范围"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-btn border border-border bg-surface text-secondary text-xs font-medium hover:text-foreground hover:bg-elevated transition-colors duration-150"
+            >
+              <SlidersHorizontal className="h-3.5 w-3.5" />
+              范围{focusCount != null ? <span className="font-mono text-muted">{focusCount}</span> : null}
+            </button>
             <button
               onClick={() => startSync.mutate()}
               disabled={isStarting || isRunning}
@@ -429,7 +442,7 @@ export function Data() {
                 </div>
                 <div className="flex items-center justify-between text-[11px]">
                   <div className="flex items-center gap-1">
-                    <span className="text-muted">盘前 · 标的维表</span>
+                    <span className="text-muted" title="股票名称、交易所、股本和涨跌停规则等基础信息">盘前 · 标的维表</span>
                     <span className="text-muted/50">·</span>
                     <span className="font-mono text-secondary">
                       {`${String(instrumentsSched.hour).padStart(2, '0')}:${String(instrumentsSched.minute).padStart(2, '0')}`}
@@ -477,6 +490,9 @@ export function Data() {
                 <div className="flex items-center justify-between text-[11px]">
                   <div className="flex items-center gap-1">
                     <span className="text-muted">盘后 · 关注范围</span>
+                    {focusCount != null && (
+                      <span className="font-mono text-accent/80">{focusCount}只</span>
+                    )}
                     <span className="text-muted/50">·</span>
                     <span className="font-mono text-secondary">
                       {`${String(pipelineSched.hour).padStart(2, '0')}:${String(pipelineSched.minute).padStart(2, '0')}`}
@@ -786,6 +802,18 @@ export function Data() {
               earliestDate={s?.daily?.earliest_date ?? null}
               onStart={() => setOpenSettings(null)}
               provider={settings.data?.data_provider}
+            />
+          </SettingsModal>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {openSettings === 'focus' && (
+          <SettingsModal title="关注范围" onClose={() => setOpenSettings(null)} maxWidth="max-w-2xl">
+            <FocusUniversePanel
+              preview={focusUniverse.data}
+              loading={focusUniverse.isLoading}
+              onClose={() => setOpenSettings(null)}
             />
           </SettingsModal>
         )}

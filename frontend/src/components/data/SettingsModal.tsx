@@ -1,7 +1,17 @@
 import { motion } from 'framer-motion'
 import { X } from 'lucide-react'
 
-export function SettingsModal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+export function SettingsModal({
+  title,
+  onClose,
+  children,
+  maxWidth = 'max-w-md',
+}: {
+  title: string
+  onClose: () => void
+  children: React.ReactNode
+  maxWidth?: string
+}) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
@@ -10,7 +20,7 @@ export function SettingsModal({ title, onClose, children }: { title: string; onC
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.97, y: 8 }}
         transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-        className="relative rounded-card border border-border bg-surface shadow-2xl mx-4 w-full max-w-md overflow-hidden"
+        className={`relative rounded-card border border-border bg-surface shadow-2xl mx-4 w-full ${maxWidth} overflow-hidden`}
       >
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <h3 className="text-sm font-medium text-foreground">{title}</h3>

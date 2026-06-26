@@ -8,7 +8,7 @@ import logging
 import time
 
 from fastapi import APIRouter, HTTPException, Request
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app import secrets_store
 from app.tickflow import client as tf_client
@@ -350,6 +350,14 @@ class MinuteSyncPrefs(BaseModel):
     minute_sync_days: int = 5
 
 
+class FocusUniverseConfigIn(BaseModel):
+    sources: dict[str, bool] | None = None
+    include_symbols: list[str] = Field(default_factory=list)
+    exclude_symbols: list[str] = Field(default_factory=list)
+    alert_limit: int | None = None
+    local_fallback_limit: int | None = None
+
+
 @router.get("/preferences")
 def get_preferences() -> dict:
     """返回用户偏好设置。"""
@@ -364,6 +372,7 @@ def get_preferences() -> dict:
         "instruments_schedule": preferences.get_instruments_schedule(),
         "enriched_batch_size": preferences.get_enriched_batch_size(),
         "index_daily_batch_size": preferences.get_index_daily_batch_size(),
+        "focus_universe": preferences.get_focus_universe_config(),
         "watchlist_columns": preferences.get_watchlist_columns(),
         "screener_result_columns": preferences.get_screener_result_columns(),
         "sse_refresh_pages": preferences.get_sse_refresh_pages(),
@@ -377,6 +386,46 @@ def get_preferences() -> dict:
         "limit_ladder_monitor_enabled": preferences.get_limit_ladder_monitor_enabled(),
         "depth_polling_interval": preferences.get_depth_polling_interval(),
         "depth_finalize_time": preferences.get_depth_finalize_time(),
+    }
+
+
+@router.get("/preferences/focus-universe")
+def get_focus_universe_preferences(request: Request) -> dict:
+    """返回关注范围配置和当前预览。"""
+    from app.services import focus_universe, preferences
+    repo = getattr(request.app.state, "repo", None)
+    data_dir = repo.store.data_dir if repo else None
+    detail = focus_universe.resolve_focus_universe_detail(data_dir)
+    return {
+        "config": preferences.get_focus_universe_config(),
+        "count": detail["count"],
+        "symbols": detail["symbols"],
+        "by_source": detail["by_source"],
+        "by_source_counts": detail["by_source_counts"],
+        "excluded_symbols": detail["excluded_symbols"],
+        "fallback_used": detail["fallback_used"],
+        "source_labels": detail["source_labels"],
+    }
+
+
+@router.put("/preferences/focus-universe")
+def update_focus_universe_preferences(req: FocusUniverseConfigIn, request: Request) -> dict:
+    """保存关注范围配置并返回新的预览。"""
+    from app.services import focus_universe, preferences
+    repo = getattr(request.app.state, "repo", None)
+    data_dir = repo.store.data_dir if repo else None
+    cfg = req.model_dump(exclude_unset=True, exclude_none=True)
+    preferences.set_focus_universe_config(cfg)
+    detail = focus_universe.resolve_focus_universe_detail(data_dir)
+    return {
+        "config": preferences.get_focus_universe_config(),
+        "count": detail["count"],
+        "symbols": detail["symbols"],
+        "by_source": detail["by_source"],
+        "by_source_counts": detail["by_source_counts"],
+        "excluded_symbols": detail["excluded_symbols"],
+        "fallback_used": detail["fallback_used"],
+        "source_labels": detail["source_labels"],
     }
 
 

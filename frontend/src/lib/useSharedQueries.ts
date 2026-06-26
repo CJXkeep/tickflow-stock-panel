@@ -69,3 +69,11 @@ export function useDataStatus(opts?: { staleTime?: number; refetchInterval?: num
     refetchInterval: opts?.refetchInterval,
   })
 }
+
+/** 关注范围配置和当前预览 — Data 页面使用 */
+export function useFocusUniverse() {
+  return useQuery({
+    queryKey: QK.focusUniverse,
+    queryFn: api.focusUniverse,
+  })
+}
