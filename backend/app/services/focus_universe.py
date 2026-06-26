@@ -95,6 +95,27 @@ def _local_instrument_symbols(data_dir: Path, limit: int) -> list[str]:
     return [str(s).upper() for s in df["symbol"].head(limit).to_list() if s]
 
 
+def _instrument_names(data_dir: Path, symbols: set[str]) -> dict[str, str]:
+    if not symbols:
+        return {}
+    inst_path = data_dir / "instruments" / "instruments.parquet"
+    if not inst_path.exists():
+        return {}
+    try:
+        df = pl.read_parquet(inst_path, columns=["symbol", "name"])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("focus universe instrument names failed: %s", e)
+        return {}
+    if df.is_empty() or "symbol" not in df.columns or "name" not in df.columns:
+        return {}
+    matched = df.filter(pl.col("symbol").cast(pl.Utf8).str.to_uppercase().is_in(symbols))
+    return {
+        str(row["symbol"]).upper(): str(row["name"] or "")
+        for row in matched.iter_rows(named=True)
+        if row.get("symbol") and row.get("name")
+    }
+
+
 def _add_source(by_source: dict[str, list[str]], key: str, symbols: set[str] | list[str]) -> None:
     by_source[key] = sorted({str(s).strip().upper() for s in symbols if str(s or "").strip()})
 
@@ -174,10 +195,15 @@ def resolve_focus_universe_detail(
     excluded = set(cfg.get("exclude_symbols") or [])
     final_symbols = sorted(symbols - excluded)
     by_source_counts = {key: len(values) for key, values in by_source.items()}
+    name_symbols = set(final_symbols) | excluded
+    for values in by_source.values():
+        name_symbols.update(values)
+    names = _instrument_names(d, name_symbols)
 
     return {
         "symbols": final_symbols,
         "count": len(final_symbols),
+        "names": names,
         "by_source": by_source,
         "by_source_counts": by_source_counts,
         "excluded_symbols": sorted(excluded),

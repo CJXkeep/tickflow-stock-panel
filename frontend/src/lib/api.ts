@@ -637,6 +637,7 @@ export interface FocusUniversePreview {
   config: FocusUniverseConfig
   count: number
   symbols: string[]
+  names: Record<string, string>
   by_source: Record<string, string[]>
   by_source_counts: Record<string, number>
   excluded_symbols: string[]

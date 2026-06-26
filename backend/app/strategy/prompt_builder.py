@@ -24,10 +24,10 @@ DIRECTION_CN = {"long": "做多", "short": "做空", "monitor": "监控"}
 def build_step1(name: str, description: str, direction: str, rules: str, strategy_id: str = "") -> str:
     """步骤1：规则 → 完整策略代码（参数 + 信号 + 评分 + 告警）
 
-    注意: strategy-guide.md 已在 ai_generator.py 的 system prompt 中加载，
+    注意: 策略开发指南.md 已在 ai_generator.py 的 system prompt 中加载，
     此处不再重复加载以节省 token。
     """
-    guide = _load_doc("strategy-builder-step1.md")
+    guide = _load_doc("策略构建步骤1-生成完整策略.md")
 
     id_line = f"\n策略ID（必须使用此ID）：{strategy_id}" if strategy_id else ""
 
@@ -48,7 +48,7 @@ def build_step1(name: str, description: str, direction: str, rules: str, strateg
 
 def build_step2(current_code: str, instruction: str) -> str:
     """步骤2：修改策略任意部分"""
-    guide = _load_doc("strategy-builder-step2.md")
+    guide = _load_doc("策略构建步骤2-修改策略代码.md")
 
     return f"""{guide}
 
