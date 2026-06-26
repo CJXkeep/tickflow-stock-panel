@@ -1020,8 +1020,8 @@ export const api = {
       body: JSON.stringify(payload),
     }),
 
-  pipelineRun: () => request<{ job_id: string; reused: boolean }>(
-    '/api/pipeline/run', { method: 'POST' },
+  pipelineRun: (fullMarket = false) => request<{ job_id: string; reused: boolean }>(
+    `/api/pipeline/run${fullMarket ? '?full_market=true' : ''}`, { method: 'POST' },
   ),
   pipelineJob: (id: string) => request<PipelineJob>(`/api/pipeline/jobs/${id}`),
   pipelineJobs: (limit = 20) =>
@@ -1329,6 +1329,7 @@ export interface PipelineJob {
   finished_at: string | null
   duration_s: number | null
   result: {
+    scope?: 'focus' | 'market'
     universe_size: number
     daily_days: number
     adj_factor_symbols: number

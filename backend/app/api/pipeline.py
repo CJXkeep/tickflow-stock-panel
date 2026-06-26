@@ -5,7 +5,7 @@ import asyncio
 import concurrent.futures as _cf
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.jobs import daily_pipeline
 from app.services.pipeline_jobs import job_store
@@ -20,7 +20,7 @@ router = APIRouter(prefix="/api/pipeline", tags=["pipeline"])
 
 
 @router.post("/run")
-async def run_now(request: Request) -> dict:
+async def run_now(request: Request, full_market: bool = Query(False)) -> dict:
     """异步触发盘后管道,立即返回 job_id。客户端轮询 /jobs/{id} 拿进度。
 
     若已有任务在跑,**返回该任务 id 而不是开新任务**(防止并发拉数据撞限流)。
@@ -65,7 +65,12 @@ async def run_now(request: Request) -> dict:
         try:
             result = await loop.run_in_executor(
                 _long_task_executor,
-                lambda: daily_pipeline.run_now(repo, capset, on_progress=progress),
+                lambda: daily_pipeline.run_now(
+                    repo,
+                    capset,
+                    on_progress=progress,
+                    full_market=full_market,
+                ),
             )
             job_store.succeed(job_id, result)
             invalidate_storage_cache()

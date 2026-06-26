@@ -71,12 +71,27 @@ def sync_instruments(data_dir) -> int:
     return df.height
 
 
-def sync_daily(repo: KlineRepository, years: int | None = None, on_chunk_done: ProgressCb | None = None) -> tuple[int, list[str]]:
-    instruments = repo.get_instruments()
-    if instruments.is_empty() or "symbol" not in instruments.columns:
+def sync_daily(
+    repo: KlineRepository,
+    years: int | None = None,
+    on_chunk_done: ProgressCb | None = None,
+    symbols: list[str] | None = None,
+    full_market: bool = False,
+) -> tuple[int, list[str]]:
+    if symbols is None:
+        if not full_market:
+            from app.services.focus_universe import resolve_focus_universe
+            symbols = resolve_focus_universe(repo.store.data_dir)
+        else:
+            instruments = repo.get_instruments()
+            if instruments.is_empty() or "symbol" not in instruments.columns:
+                return 0, []
+            symbols = instruments["symbol"].cast(pl.Utf8).to_list()
+
+    symbols = sorted(set(symbols))
+    if not symbols:
         return 0, []
 
-    symbols = sorted(set(instruments["symbol"].cast(pl.Utf8).to_list()))
     end = date.today()
     history_start = end - timedelta(days=365 * (years or settings.akshare_initial_years))
     span_by_symbol = _local_daily_span_by_symbol(repo)

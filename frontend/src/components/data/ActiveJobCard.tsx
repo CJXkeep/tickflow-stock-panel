@@ -7,7 +7,7 @@ import type { PipelineJob } from '@/lib/api'
 
 export const STAGE_LABELS: Record<string, string> = {
   init: '初始化',
-  resolve_universe: '解析标的池',
+  resolve_universe: '解析范围',
   sync_instruments: '同步标的维表',
   sync_daily: '同步日 K',
   sync_adj: '同步除权因子',
@@ -15,7 +15,7 @@ export const STAGE_LABELS: Record<string, string> = {
   sync_minute: '同步分钟 K',
   extend_history: '扩展日K历史',
   extend_minute: '扩展分钟K历史',
-  rebuild_enriched: '全量计算',
+  rebuild_enriched: '手动重算',
   refresh_views: '刷新视图',
   done: '完成',
 }
@@ -115,9 +115,10 @@ export function ActiveJobCard({ job }: { job: PipelineJob }) {
         const skipped = new Set(job.result.skipped_stages ?? [])
         const cell = (stage: string | null, v: string) =>
           stage && skipped.has(stage) ? '跳过' : v
+        const scopeLabel = job.result.scope === 'market' ? '全市场' : '关注范围'
         return (
           <div className="mt-3 grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
-            <Pill label="标的池" value={job.result.universe_size ?? '—'} />
+            <Pill label={scopeLabel} value={job.result.universe_size ?? '—'} />
             <Pill label="日 K" value={cell(null, `${job.result.daily_days ?? 0} 天`)} />
             <Pill label="除权因子" value={cell('sync_adj', `${job.result.adj_factor_symbols ?? 0} 只`)} />
             <Pill label="enriched" value={cell(null, `${job.result.enriched_days ?? 0} 行`)} />

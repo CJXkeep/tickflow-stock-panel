@@ -96,6 +96,7 @@ def sync_and_persist_index_daily(
     count: int | None = None,
     start_date: datetime | None = None,
     end_date: datetime | None = None,
+    symbols: list[str] | None = None,
 ) -> int:
     """同步指数日K到独立 parquet，并计算指数 enriched。"""
     if not capset.has(Cap.KLINE_DAILY_BATCH):
@@ -108,7 +109,14 @@ def sync_and_persist_index_daily(
     if instruments.is_empty() or "symbol" not in instruments.columns:
         return 0
 
-    symbols = sorted(set(instruments["symbol"].to_list()))
+    if symbols is None:
+        symbols = sorted(set(instruments["symbol"].to_list()))
+    else:
+        available = set(instruments["symbol"].to_list())
+        symbols = sorted({s for s in symbols if s in available})
+    if not symbols:
+        return 0
+
     lim = capset.limits(Cap.KLINE_DAILY_BATCH)
     batch_size = preferences.get_index_daily_batch_size()
     if lim and lim.batch:

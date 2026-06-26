@@ -174,36 +174,48 @@ def sync_and_persist_daily_batch(
     return df.height
 
 
-def sync_daily_by_quotes(repo: KlineRepository) -> int:
-    """用实时行情接口拉全市场当日数据,覆写 kline_daily 今天分区。
+def sync_daily_by_quotes(repo: KlineRepository, symbols: list[str] | None = None) -> int:
+    """Use quote data to overwrite today's daily partition.
 
-    一个请求覆盖 ~5500 只股票,比 batch K-line 快几个数量级。
+    symbols=None keeps the explicit full-market path; otherwise only the focus
+    symbols are fetched.
     返回写入的行数。
     """
     from datetime import date as _date
 
-    from app.tickflow.client import get_client
-
     tf = get_client()
     try:
-        resp = tf.quotes.get_by_universes(universes=["CN_Equity_A"])
+        if symbols is None:
+            resp = tf.quotes.get_by_universes(universes=["CN_Equity_A"])
+        else:
+            if not symbols:
+                return 0
+            resp = tf.quotes.get(symbols=symbols, as_dataframe=True)
     except Exception as e:
-        logger.warning("get_by_universes failed: %s", e)
+        logger.warning("quote daily overwrite failed: %s", e)
         return 0
 
-    if not resp:
-        logger.warning("get_by_universes returned empty")
+    if isinstance(resp, pl.DataFrame):
+        quote_rows = resp.to_dicts()
+    elif hasattr(resp, "columns"):
+        quote_rows = pl.from_pandas(resp.reset_index() if hasattr(resp, "reset_index") else resp).to_dicts()
+    elif isinstance(resp, dict):
+        quote_rows = [resp]
+    else:
+        quote_rows = list(resp or [])
+
+    if not quote_rows:
+        logger.warning("quote daily overwrite returned empty")
         return 0
 
     records = []
-    for q in resp:
-        ext = q.get("ext") or {}
+    for q in quote_rows:
         records.append({
             "symbol": q.get("symbol"),
             "open": q.get("open"),
             "high": q.get("high"),
             "low": q.get("low"),
-            "close": q.get("last_price"),
+            "close": q.get("last_price") or q.get("close"),
             "volume": q.get("volume"),
             "amount": q.get("amount"),
         })

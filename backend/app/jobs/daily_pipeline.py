@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 from pathlib import Path
+from typing import Literal
 
 import polars as pl
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -20,7 +21,7 @@ from apscheduler.triggers.cron import CronTrigger
 
 from app.indicators.pipeline import run_pipeline
 from app.config import settings
-from app.services import index_sync, instrument_sync, kline_sync
+from app.services import focus_universe, index_sync, instrument_sync, kline_sync, preferences
 from app.tickflow.capabilities import Cap, CapabilitySet
 from app.tickflow.pools import DEMO_SYMBOLS, get_pool
 from app.tickflow.repository import KlineRepository
@@ -34,6 +35,7 @@ _SCHEDULER_JOB_IDS = (
     "daily_pipeline",
     "depth_finalize",
 )
+UniverseScope = Literal["focus", "market"]
 
 
 def _noop(stage: str, pct: int, msg: str, **kwargs) -> None:  # noqa: ARG001
@@ -46,12 +48,8 @@ def _invalidate(table: str | None = None) -> None:
     invalidate_data_cache(table)
 
 
-def _resolve_universe(capset: CapabilitySet) -> list[str]:
-    """解析标的池 — 以 CN_Equity_A (沪深京A股 ~5522只) 为主。
-
-    有 batch 能力 → 直接拉 CN_Equity_A universe
-    其他用户 → 用 instruments parquet + watchlist 兜底
-    """
+def _resolve_market_universe(capset: CapabilitySet) -> list[str]:
+    """Resolve the explicit full-market universe."""
     if capset.has(Cap.KLINE_DAILY_BATCH):
         try:
             all_a = get_pool("CN_Equity_A", refresh=True)
@@ -60,7 +58,6 @@ def _resolve_universe(capset: CapabilitySet) -> list[str]:
         except Exception as e:  # noqa: BLE001
             logger.warning("CN_Equity_A pool unavailable, fallback: %s", e)
 
-    # Free 用户兜底: instruments parquet + watchlist + demo
     base: set[str] = set(DEMO_SYMBOLS)
     base.update(get_pool("watchlist"))
     d = Path(settings.data_dir)
@@ -72,6 +69,17 @@ def _resolve_universe(capset: CapabilitySet) -> list[str]:
         except Exception as e:  # noqa: BLE001
             logger.warning("instruments supplement failed: %s", e)
     return sorted(base)
+
+
+def _resolve_universe(capset: CapabilitySet, scope: UniverseScope = "focus") -> list[str]:
+    """Resolve the sync universe.
+
+    focus is the daily default and only reads local attention signals.
+    market keeps the old all-market behavior for explicit manual jobs.
+    """
+    if scope == "market":
+        return _resolve_market_universe(capset)
+    return focus_universe.resolve_focus_universe(settings.data_dir)
 
 
 def run_instruments_sync(repo: KlineRepository) -> dict:
@@ -86,6 +94,7 @@ def run_now(
     repo: KlineRepository,
     capset: CapabilitySet,
     on_progress: ProgressCb | None = None,
+    full_market: bool = False,
 ) -> dict:
     """立即执行一次盘后管道,支持进度回调。
 
@@ -93,10 +102,12 @@ def run_now(
     result 里带 skipped_stages 列表供前端展示。
     """
     if settings.provider_is_akshare:
-        return _run_akshare_now(repo, on_progress=on_progress)
+        return _run_akshare_now(repo, capset, on_progress=on_progress, full_market=full_market)
 
     emit = on_progress or _noop
     skipped: list[str] = []
+    scope: UniverseScope = "market" if full_market else "focus"
+    scope_label = "全市场" if scope == "market" else "关注范围"
 
     # Step 0: 先同步标的维表, 再解析标的池 — 确保标的池基于最新 instruments
     emit("sync_instruments", 2, "同步标的维表…")
@@ -106,12 +117,12 @@ def run_now(
     emit("sync_instruments", 8, f"标的维表同步完成,{inst_rows} 只标的")
     _invalidate("instruments")
 
-    emit("resolve_universe", 9, "解析标的池…")
-    universe = _resolve_universe(capset)
-    emit("resolve_universe", 10, f"标的池规模:{len(universe)} 只")
+    emit("resolve_universe", 9, f"解析{scope_label}…")
+    universe = _resolve_universe(capset, scope=scope)
+    emit("resolve_universe", 10, f"{scope_label}规模:{len(universe)} 只")
 
     # Step 1: 日 K 同步
-    #   今天有数据 → 实时行情接口拉一次覆写（1请求全市场）
+    #   今天有数据 → 实时行情接口拉一次覆写（focus 按 symbols, market 按全市场）
     #   今天没数据 → batch K-line API 补齐
     #   无任何数据 → batch K-line API 拉首次 1 年
     from datetime import date as _date, timedelta as _td, datetime as _dt
@@ -123,7 +134,16 @@ def run_now(
     if today_exists:
         # 今天有数据（QuoteService 已落盘）→ 实时行情覆写，确保最新
         emit("sync_daily", 12, f"获取日K [{today} ~ {today}] 实时行情…")
-        written_daily = kline_sync.sync_daily_by_quotes(repo)
+        written_daily = kline_sync.sync_daily_by_quotes(
+            repo,
+            symbols=None if scope == "market" else universe,
+        )
+        if scope == "focus" and written_daily == 0:
+            written_daily = kline_sync.sync_and_persist_daily_batch(
+                universe, repo, capset,
+                start_date=_dt.combine(today, _dt.min.time()),
+                end_date=_dt.combine(today, _dt.min.time()),
+            )
         new_daily_days = 1
         emit("sync_daily", 45, f"日K 完成,{written_daily} 只标的")
         logger.info("sync_daily: [%s ~ %s] live quotes, %d symbols", today, today, written_daily)
@@ -259,27 +279,38 @@ def run_now(
              f"计算指标 批次 {cur}/{tot}", stage_pct=int(100 * cur / tot), skip_log=True)
 
     if not enriched_exists or backward_extension:
-        # 首次 或 往前扩展 → 全量
-        emit("compute_enriched", 65, "全量计算 enriched…")
+        # 首次 或 往前扩展: focus 只计算关注范围, market 才做全量。
+        enriched_symbols = None if scope == "market" else universe
+        emit(
+            "compute_enriched",
+            65,
+            "全量计算 enriched…" if scope == "market" else f"计算关注范围 enriched ({len(universe)} 只)…",
+        )
         logger.info("compute_enriched: full rebuild (first=%s, backward=%s, daily=%d, enriched=%d)",
                     not enriched_exists, backward_extension, daily_days, prev_enriched_days)
-        written_enriched = run_pipeline(on_batch_done=_enriched_batch_progress)
+        written_enriched = run_pipeline(symbols=enriched_symbols, on_batch_done=_enriched_batch_progress)
         new_enriched_days = len(list(enriched_dir.glob("date=*")))
         emit("compute_enriched", 88, f"enriched 完成,覆盖 {new_enriched_days} 天")
         logger.info("compute_enriched: full rebuild done, %d days", new_enriched_days)
     elif forward_incremental:
-        # 往后新增日期: 增量补新区块 + 受影响个股全日期重算
+        # 往后新增日期: market 走日期增量; focus 直接重算关注范围全日期,避免新分区误扫旧全市场数据。
         symbols_to_recompute = list(set(affected_symbols)) if affected_symbols else []
-        emit("compute_enriched", 65,
-             f"增量计算 enriched (新日期 + {len(symbols_to_recompute)} 只个股重算)…"
-             if symbols_to_recompute else "增量计算 enriched (新日期)…")
-        logger.info("compute_enriched: forward incremental, %d symbols to recompute",
-                    len(symbols_to_recompute))
-        written_enriched = run_pipeline(
-            new_dates_only=True,
-            symbols=symbols_to_recompute or None,
-            on_batch_done=_enriched_batch_progress,
-        )
+        if scope == "market":
+            emit("compute_enriched", 65,
+                 f"增量计算 enriched (新日期 + {len(symbols_to_recompute)} 只个股重算)…"
+                 if symbols_to_recompute else "增量计算 enriched (新日期)…")
+            logger.info("compute_enriched: forward incremental, %d symbols to recompute",
+                        len(symbols_to_recompute))
+            written_enriched = run_pipeline(
+                new_dates_only=True,
+                symbols=symbols_to_recompute or None,
+                on_batch_done=_enriched_batch_progress,
+            )
+        else:
+            focus_symbols = sorted(set(universe) | set(symbols_to_recompute))
+            emit("compute_enriched", 65, f"计算关注范围 enriched ({len(focus_symbols)} 只)…")
+            logger.info("compute_enriched: focus recompute, %d symbols", len(focus_symbols))
+            written_enriched = run_pipeline(symbols=focus_symbols, on_batch_done=_enriched_batch_progress)
         new_enriched_days = len(list(enriched_dir.glob("date=*")))
         emit("compute_enriched", 88, f"enriched 完成,覆盖 {new_enriched_days} 天")
         logger.info("compute_enriched: forward incremental done, %d days", new_enriched_days)
@@ -299,7 +330,8 @@ def run_now(
     written_index_daily = 0
     index_count = 0
     if capset.has(Cap.KLINE_DAILY_BATCH):
-        emit("sync_index", 88, "同步指数列表与日K…")
+        index_symbols = None if scope == "market" else preferences.get_sidebar_index_symbols()
+        emit("sync_index", 88, "同步指数列表与日K…" if scope == "market" else "同步基准指数日K…")
         try:
             index_count = index_sync.sync_index_instruments(repo)
             index_dir = repo.store.data_dir / "kline_index_enriched"
@@ -313,6 +345,7 @@ def run_now(
                 capset,
                 start_date=_dt.combine(index_start, _dt.min.time()),
                 end_date=_dt.combine(today, _dt.min.time()),
+                symbols=index_symbols,
             )
             repo.refresh_index_views()
             _invalidate("index_instruments")
@@ -326,7 +359,6 @@ def run_now(
         skipped.append("sync_index")
 
     # Step 2.5: 分钟 K 同步(可选) — 未启用或无 capability 时静默跳过(不 emit)
-    from app.services import preferences
     minute_on = preferences.get_minute_sync_enabled()
     minute_days = preferences.get_minute_sync_days()
     written_minute = 0
@@ -334,7 +366,7 @@ def run_now(
         minute_start = today - _td(days=minute_days)
         emit("sync_minute", 90, f"获取分钟K [{minute_start} ~ {today}]…")
         logger.info("sync_minute: [%s ~ %s] start", minute_start, today)
-        minute_symbols = _resolve_minute_symbols(capset)
+        minute_symbols = _resolve_minute_symbols(capset, scope=scope)
         def _minute_chunk_progress(cur: int, tot: int) -> None:
             emit("sync_minute", 90 + int(3 * cur / tot),
                  f"分钟K 批次 {cur}/{tot}", stage_pct=int(100 * cur / tot), skip_log=True)
@@ -362,6 +394,7 @@ def run_now(
     _invalidate(None)  # 兜底:全清
 
     return {
+        "scope": scope,
         "universe_size": len(universe),
         "daily_days": new_daily_days,
         "adj_factor_symbols": len(affected_symbols),
@@ -373,7 +406,12 @@ def run_now(
     }
 
 
-def _run_akshare_now(repo: KlineRepository, on_progress: ProgressCb | None = None) -> dict:
+def _run_akshare_now(
+    repo: KlineRepository,
+    capset: CapabilitySet,
+    on_progress: ProgressCb | None = None,
+    full_market: bool = False,
+) -> dict:
     """Run the manual AkShare after-market pipeline.
 
     Phase 1 intentionally supports manual sync only. Scheduler registration skips
@@ -383,6 +421,9 @@ def _run_akshare_now(repo: KlineRepository, on_progress: ProgressCb | None = Non
 
     emit = on_progress or _noop
     skipped = ["sync_adj", "sync_minute", "depth5", "financials"]
+    scope: UniverseScope = "market" if full_market else "focus"
+    universe: list[str] | None = None
+    universe_size = 0
 
     emit("sync_instruments", 2, "同步 AkShare 标的维表…")
     inst_rows = akshare_sync.sync_instruments(repo.store.data_dir)
@@ -392,7 +433,19 @@ def _run_akshare_now(repo: KlineRepository, on_progress: ProgressCb | None = Non
     _invalidate("instruments")
     emit("sync_instruments", 8, f"标的维表同步完成,{inst_rows} 只标的")
 
-    emit("sync_daily", 10, f"同步 AkShare 最近 {settings.akshare_initial_years} 年日K…")
+    if scope == "focus":
+        emit("resolve_universe", 9, "解析关注范围…")
+        universe = _resolve_universe(capset, scope="focus")
+        universe_size = len(universe)
+        emit("resolve_universe", 10, f"关注范围规模:{universe_size} 只")
+
+    emit(
+        "sync_daily",
+        10,
+        f"同步 AkShare 最近 {settings.akshare_initial_years} 年日K…"
+        if scope == "market"
+        else f"同步 AkShare 关注范围日K ({universe_size} 只)…",
+    )
 
     def _daily_progress(cur: int, tot: int) -> None:
         emit(
@@ -406,14 +459,20 @@ def _run_akshare_now(repo: KlineRepository, on_progress: ProgressCb | None = Non
     written_daily, daily_failures = akshare_sync.sync_daily(
         repo,
         years=settings.akshare_initial_years,
+        symbols=universe,
+        full_market=scope == "market",
         on_chunk_done=_daily_progress,
     )
     _refresh_single_view(repo, "kline_daily")
     _invalidate("daily")
     emit("sync_daily", 55, f"日K 完成,{written_daily} 行,失败 {len(daily_failures)} 只")
 
-    emit("compute_enriched", 60, "全量计算 enriched…")
-    written_enriched = run_pipeline(on_batch_done=lambda cur, tot: emit(
+    emit(
+        "compute_enriched",
+        60,
+        "全量计算 enriched…" if scope == "market" else f"计算关注范围 enriched ({universe_size} 只)…",
+    )
+    written_enriched = run_pipeline(symbols=universe if scope == "focus" else None, on_batch_done=lambda cur, tot: emit(
         "compute_enriched",
         60 + int(25 * cur / max(tot, 1)),
         f"计算指标 批次 {cur}/{tot}",
@@ -442,7 +501,8 @@ def _run_akshare_now(repo: KlineRepository, on_progress: ProgressCb | None = Non
 
     return {
         "provider": "akshare",
-        "universe_size": inst_rows,
+        "scope": scope,
+        "universe_size": inst_rows if scope == "market" else universe_size,
         "daily_rows": written_daily,
         "daily_failures": daily_failures[:50],
         "daily_failure_count": len(daily_failures),
@@ -503,9 +563,9 @@ def _refresh_single_view(repo: KlineRepository, name: str) -> None:
         logger.warning("refresh view %s failed: %s", name, e)
 
 
-def _resolve_minute_symbols(capset: CapabilitySet) -> list[str]:
+def _resolve_minute_symbols(capset: CapabilitySet, scope: UniverseScope = "focus") -> list[str]:
     """分钟 K 同步标的 — 与日K共用同一标的池。"""
-    return _resolve_universe(capset)
+    return _resolve_universe(capset, scope=scope)
 
 
 def _refresh_instruments_view(repo: KlineRepository) -> None:

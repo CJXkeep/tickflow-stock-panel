@@ -75,7 +75,14 @@ export function Data() {
   })
 
   const startSync = useMutation({
-    mutationFn: api.pipelineRun,
+    mutationFn: () => api.pipelineRun(false),
+    onSuccess: ({ job_id }) => {
+      setActiveJobId(job_id)
+      startTime.current = Date.now()
+    },
+  })
+  const startFullMarketSync = useMutation({
+    mutationFn: () => api.pipelineRun(true),
     onSuccess: ({ job_id }) => {
       setActiveJobId(job_id)
       startTime.current = Date.now()
@@ -189,7 +196,7 @@ export function Data() {
   const hasAdjCap = !!caps.data?.capabilities?.['adj_factor']
   const hasDailyBatchCap = !!caps.data?.capabilities?.['kline.daily.batch']
   const hasMinuteCap = !!caps.data?.capabilities?.['kline.minute.batch']
-  const pipelineSteps = ['日K', ...(hasAdjCap ? ['复权'] : []), '指标', '指数', ...((hasMinuteCap && minuteAuto) ? ['分钟K'] : [])]
+  const pipelineSteps = ['日K', ...(hasAdjCap ? ['复权'] : []), '指标', '基准指数', ...((hasMinuteCap && minuteAuto) ? ['分钟K'] : [])]
 
   useEffect(() => {
     if (job.data && (job.data.status === 'succeeded' || job.data.status === 'failed')) {
@@ -215,7 +222,7 @@ export function Data() {
   const s = status.data
   const isLoading = status.isLoading
   const isRunning = job.data?.status === 'running' || job.data?.status === 'pending'
-  const isStarting = startSync.isPending
+  const isStarting = startSync.isPending || startFullMarketSync.isPending
   const hasData = !!(s?.instruments?.rows || s?.daily?.rows)
   const indexOverviewStats = s ? {
     rows: 0,
@@ -290,7 +297,7 @@ export function Data() {
       <div ref={topRef} />
       <PageHeader
         title="数据"
-        subtitle="本地数据画像 · 同步状态 · 历史记录"
+        subtitle="关注范围同步 · 手动重数据 · 存储状态"
         right={
           <div className="flex items-center gap-3">
             <span className="inline-flex items-center gap-1.5 rounded-btn border border-border bg-surface px-2 py-1 text-xs text-secondary">
@@ -298,19 +305,32 @@ export function Data() {
               <span className="font-mono text-foreground">{providerLabel}</span>
             </span>
             {!hasData && !isLoading && (
-              <span className="text-xs text-accent animate-pulse">首次使用请点击右侧按钮同步数据</span>
+              <span className="text-xs text-accent animate-pulse">首次使用请先同步关注范围</span>
             )}
             <button
               onClick={() => startSync.mutate()}
-              disabled={isStarting}
+              disabled={isStarting || isRunning}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-btn bg-gradient-to-r from-accent/25 to-accent/10 border border-accent/30 text-accent text-xs font-medium hover:from-accent/35 hover:to-accent/20 disabled:opacity-40 transition-all duration-150"
             >
-              {(isRunning || isStarting) ? (
+              {(isRunning || startSync.isPending) ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
                 <Play className="h-3.5 w-3.5" />
               )}
-              {isStarting ? '启动中…' : isRunning ? '同步中…' : '立即同步'}
+              {startSync.isPending ? '启动中…' : isRunning ? '同步中…' : '同步关注范围'}
+            </button>
+            <button
+              onClick={() => startFullMarketSync.mutate()}
+              disabled={isStarting || isRunning}
+              title="手动运行全市场重任务"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-btn border border-border bg-surface text-secondary text-xs font-medium hover:text-foreground hover:bg-elevated disabled:opacity-40 transition-colors duration-150"
+            >
+              {startFullMarketSync.isPending ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Database className="h-3.5 w-3.5" />
+              )}
+              全市场
             </button>
             <div className="w-px h-4 bg-border" />
             <div className="flex items-center gap-1.5">
@@ -456,7 +476,7 @@ export function Data() {
                 </AnimatePresence>
                 <div className="flex items-center justify-between text-[11px]">
                   <div className="flex items-center gap-1">
-                    <span className="text-muted">盘后 · 全量管道</span>
+                    <span className="text-muted">盘后 · 关注范围</span>
                     <span className="text-muted/50">·</span>
                     <span className="font-mono text-secondary">
                       {`${String(pipelineSched.hour).padStart(2, '0')}:${String(pipelineSched.minute).padStart(2, '0')}`}
@@ -561,9 +581,9 @@ export function Data() {
           </div>
         </div>
 
-        {/* 数据画像 */}
+        {/* 数据范围 */}
         <div>
-          <SectionTitle icon={Database}>数据画像</SectionTitle>
+          <SectionTitle icon={Database}>数据范围</SectionTitle>
           <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4 items-stretch">
             <StatCard
               title="标的维表"
@@ -583,7 +603,7 @@ export function Data() {
             />
             <StatCard
               title="日 K"
-              hint="增量同步 · 全市场"
+              hint="默认同步 · 关注范围"
               stats={s?.daily}
               loading={isLoading}
               active={activeCard === 'daily'}
@@ -600,7 +620,7 @@ export function Data() {
             />
             <StatCard
               title="除权因子"
-              hint="增量同步 · 全市场"
+              hint="按需同步 · 关注范围"
               stats={s?.adj_factor}
               loading={isLoading}
               active={activeCard === 'adj_factor'}
@@ -615,7 +635,7 @@ export function Data() {
             />
             <StatCard
               title="Enriched"
-              hint="复权 OHLCV + 技术指标"
+              hint="关注范围指标 + 信号"
               stats={s?.enriched}
               loading={isLoading}
               active={activeCard === 'enriched'}
@@ -634,7 +654,7 @@ export function Data() {
             />
             <StatCard
               title="指数数据"
-              hint="CN_Index · 独立存储"
+              hint="基准指数 · 手动扩展"
               stats={indexOverviewStats}
               loading={isLoading}
               active={activeCard === 'index_daily'}
@@ -657,7 +677,7 @@ export function Data() {
             />
             <StatCard
               title="分钟 K"
-              hint="全市场同步"
+              hint="高级手动任务"
               stats={s?.minute}
               loading={isLoading}
               active={activeCard === 'minute'}
@@ -669,12 +689,12 @@ export function Data() {
               tierLabel={caps.data?.label}
               auto={minuteAuto}
               onShowFields={() => setSchemaTable('minute')}
-               onSettings={hasData ? () => setOpenSettings(v => v === 'minute' ? null : 'minute') : undefined}
+              onSettings={hasData ? () => setOpenSettings(v => v === 'minute' ? null : 'minute') : undefined}
               settingsOpen={openSettings === 'minute'}
             />
             <StatCard
               title="财务数据"
-              hint="利润表 / 资负表 / 现金流 / 指标"
+              hint="高级手动任务"
               stats={s?.financials ? { rows: s.financials.rows } : null}
               loading={isLoading}
               tierKey="financials"
@@ -720,15 +740,15 @@ export function Data() {
               </div>
             ) : (
               <div className="px-5 py-8 text-center text-sm text-muted">
-                暂无同步记录 — 点右上角"立即同步"开始。
+                暂无同步记录 — 点右上角同步关注范围开始。
               </div>
             )}
           </div>
         </div>
 
-        {startSync.isError && (
+        {(startSync.isError || startFullMarketSync.isError) && (
           <div className="rounded-btn border border-danger/40 bg-danger/5 px-3 py-2 text-sm text-danger">
-            启动失败:{String((startSync.error as any).message)}
+            启动失败:{String(((startSync.error ?? startFullMarketSync.error) as any).message)}
           </div>
         )}
       </div>
@@ -773,7 +793,7 @@ export function Data() {
 
       <AnimatePresence>
         {openSettings === 'enriched' && (
-          <SettingsModal title="Enriched · 计算设置" onClose={() => setOpenSettings(null)}>
+          <SettingsModal title="Enriched · 手动重算" onClose={() => setOpenSettings(null)}>
             <EnrichedRebuildPanel isRunning={!!activeJobId} onStart={() => setOpenSettings(null)} />
           </SettingsModal>
         )}
@@ -781,12 +801,12 @@ export function Data() {
 
       <AnimatePresence>
         {openSettings === 'index' && (
-          <SettingsModal title="指数数据 · 手动获取" onClose={() => setOpenSettings(null)}>
+          <SettingsModal title="指数数据 · 手动扩展" onClose={() => setOpenSettings(null)}>
             <div className="space-y-4">
               <div className="rounded-card border border-border bg-base/30 p-4 space-y-3">
                 <div>
                   <div className="text-sm font-medium text-foreground">指数日 K</div>
-                  <div className="text-[11px] text-muted mt-1">获取数据时会先刷新 CN_Index 维表，再向前扩展指数历史；指数不需要复权。</div>
+                  <div className="text-[11px] text-muted mt-1">获取数据时会先刷新指数维表，再按所选跨度扩展指数历史；这是手动任务。</div>
                 </div>
                 <div className="flex items-center gap-2">
                   <div className="flex items-center">
@@ -868,7 +888,7 @@ export function Data() {
                       获取中…
                     </>
                   ) : (
-                    <>获取数据</>
+                    <>手动获取</>
                   )}
                 </button>
                 {!hasDailyBatchCap && (
@@ -884,7 +904,7 @@ export function Data() {
 
       <AnimatePresence>
         {openSettings === 'minute' && (
-          <SettingsModal title="分钟 K · 同步设置" onClose={() => setOpenSettings(null)}>
+          <SettingsModal title="分钟 K · 高级手动任务" onClose={() => setOpenSettings(null)}>
             <MinuteSyncConfig caps={caps.data} isRunning={!!activeJobId} onStart={() => setOpenSettings(null)} />
           </SettingsModal>
         )}

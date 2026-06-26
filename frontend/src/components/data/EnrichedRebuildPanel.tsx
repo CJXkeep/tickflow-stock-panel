@@ -93,7 +93,7 @@ export function EnrichedRebuildPanel({ isRunning, onStart }: { isRunning: boolea
       </div>
 
       <div>
-        <div className="text-[10px] text-muted mb-2">基于已有 kline_daily + adj_factor 全量计算前复权 + 技术指标 + 信号</div>
+        <div className="text-[10px] text-muted mb-2">基于已有 kline_daily + adj_factor 手动重算前复权、指标与信号</div>
         <button
           onClick={() => rebuild.mutate()}
           disabled={isRunning || rebuild.isPending}
@@ -102,7 +102,7 @@ export function EnrichedRebuildPanel({ isRunning, onStart }: { isRunning: boolea
           {rebuild.isPending ? (
             <><Loader2 className="h-3 w-3 animate-spin" />计算中…</>
           ) : (
-            <>全量计算</>
+            <>手动重算</>
           )}
         </button>
       </div>
