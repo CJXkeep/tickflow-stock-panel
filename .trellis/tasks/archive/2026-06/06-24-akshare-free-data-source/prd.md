@@ -93,21 +93,21 @@ The following must remain unavailable or greyed out in AkShare mode:
 
 ## Acceptance Criteria
 
-- [ ] With default config, TickFlow mode behaves as before.
-- [ ] With `DATA_PROVIDER=akshare`, `/api/capabilities` returns AkShare static daily-bar capabilities and does not probe TickFlow.
-- [ ] With `DATA_PROVIDER=akshare`, settings API reports the current provider.
-- [ ] With `DATA_PROVIDER=akshare`, manual pipeline sync writes instruments, daily bars, enriched daily data, index instruments, and index daily data when AkShare is available.
-- [ ] With `DATA_PROVIDER=akshare`, unsupported capabilities such as realtime, minute K, depth, and financial are absent or unavailable.
-- [ ] With `DATA_PROVIDER=akshare`, realtime quote polling cannot be enabled through backend or frontend tier-label fallbacks.
-- [ ] With `DATA_PROVIDER=akshare`, scheduled jobs do not perform automatic AkShare network sync in Phase 1.
-- [ ] With `DATA_PROVIDER=akshare`, direct sync endpoints such as extend-history and index sync do not accidentally call TickFlow.
-- [ ] With `DATA_PROVIDER=akshare`, extend-history UI/API is disabled or rejected for Phase 1 instead of fetching additional AkShare history.
-- [ ] With `DATA_PROVIDER=akshare`, onboarding and settings make it clear TickFlow key setup is optional / provider-specific.
-- [ ] Old local data is preserved when an AkShare sync batch fails.
-- [ ] Internal persisted symbols use the existing normalized symbol format.
-- [ ] Screener and daily K-line read from the local AkShare-backed enriched data.
-- [ ] Basic backtest can run from the local AkShare-backed enriched data.
-- [ ] TickFlow-specific code paths remain intact and selectable by `DATA_PROVIDER=tickflow`.
+- [x] With default config, TickFlow mode behaves as before.
+- [x] With `DATA_PROVIDER=akshare`, `/api/capabilities` returns AkShare static daily-bar capabilities and does not probe TickFlow.
+- [x] With `DATA_PROVIDER=akshare`, settings API reports the current provider.
+- [x] With `DATA_PROVIDER=akshare`, manual pipeline sync writes instruments, daily bars, enriched daily data, index instruments, and index daily data when AkShare is available.
+- [x] With `DATA_PROVIDER=akshare`, unsupported capabilities such as realtime, minute K, depth, and financial are absent or unavailable.
+- [x] With `DATA_PROVIDER=akshare`, realtime quote polling cannot be enabled through backend or frontend tier-label fallbacks.
+- [x] With `DATA_PROVIDER=akshare`, scheduled jobs do not perform automatic AkShare network sync in Phase 1.
+- [x] With `DATA_PROVIDER=akshare`, direct sync endpoints such as extend-history and index sync do not accidentally call TickFlow.
+- [x] With `DATA_PROVIDER=akshare`, extend-history UI/API is disabled or rejected for Phase 1 instead of fetching additional AkShare history.
+- [x] With `DATA_PROVIDER=akshare`, onboarding and settings make it clear TickFlow key setup is optional / provider-specific.
+- [x] Old local data is preserved when an AkShare sync batch fails.
+- [x] Internal persisted symbols use the existing normalized symbol format.
+- [x] Screener and daily K-line read from the local AkShare-backed enriched data.
+- [x] Basic backtest can run from the local AkShare-backed enriched data.
+- [x] TickFlow-specific code paths remain intact and selectable by `DATA_PROVIDER=tickflow`.
 
 ## Out Of Scope
 
