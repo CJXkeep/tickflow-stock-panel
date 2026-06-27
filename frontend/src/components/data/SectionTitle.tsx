@@ -35,11 +35,12 @@ export function HistoryRow({ job, onClick }: { job: any; onClick: () => void }) 
           </div>
         </div>
       </div>
-      <div className="text-right shrink-0">
+      <div className="flex shrink-0 items-center gap-3 text-right">
+        <div>
         {job.result && (() => {
           const r = job.result as Record<string, any>
           const parts: string[] = []
-          if (r.daily_days != null) parts.push(`日K ${r.daily_days}日`)
+          if (r.daily_days != null) parts.push(`日K ${r.daily_days}日${r.daily_rows != null ? `/${r.daily_rows}行` : ''}`)
           if (r.enriched_days != null) parts.push(`enriched ${r.enriched_days}行`)
           if (r.minute_rows != null) parts.push(`分钟K ${r.minute_rows}行`)
           if (r.earliest_after && r.earliest_before) {
@@ -55,6 +56,10 @@ export function HistoryRow({ job, onClick }: { job: any; onClick: () => void }) 
         {job.error && (
           <div className="text-xs text-danger truncate max-w-xs">{job.error}</div>
         )}
+        </div>
+        <span className="rounded border border-border px-2 py-1 text-[11px] text-muted">
+          详情
+        </span>
       </div>
     </button>
   )

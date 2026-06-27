@@ -609,6 +609,7 @@ export function Watchlist() {
 
   const allSymbols = list.data?.symbols?.map(s => s.symbol) ?? []
   const rows = enriched.data?.rows ?? []
+  const missingCount = enriched.data?.missing_symbols?.length ?? rows.filter((r: any) => r._missing_enriched).length
 
   // ===== 筛选 =====
   const [filterOpen, setFilterOpen] = useState(false)
@@ -721,7 +722,7 @@ export function Watchlist() {
     <div className="flex flex-col h-full">
       <PageHeader
         title="观察池"
-        subtitle={`${sortedRows.length}/${allSymbols.length} 只`}
+        subtitle={`${sortedRows.length}/${allSymbols.length} 只${missingCount ? ` · 待同步 ${missingCount}` : ''}`}
         right={
           <div className="flex items-center gap-2">
             {/* 筛选 / 搜索 */}
@@ -876,7 +877,7 @@ export function Watchlist() {
               sort={sort}
               onSortToggle={handleSortToggle}
               rowKey={(r: any) => r.symbol}
-              rowClassName={() => 'border-t border-border hover:bg-elevated/50 transition-colors duration-150 ease-smooth'}
+              rowClassName={(r: any) => `border-t border-border hover:bg-elevated/50 transition-colors duration-150 ease-smooth ${r._missing_enriched ? 'opacity-60' : ''}`}
               // 日k列表头：标签 + 显示/隐藏眼睛按钮
               renderHeaderContent={(col) => {
                 if (col.source.type === 'builtin' && col.source.key === 'candle') {
@@ -932,6 +933,11 @@ export function Watchlist() {
                           {board ? (
                             <span className={`shrink-0 inline-flex items-center justify-center w-[18px] h-[18px] rounded text-[9px] font-bold leading-none border ${board.color}`}>
                               {board.label}
+                            </span>
+                          ) : null}
+                          {r._missing_enriched ? (
+                            <span className="shrink-0 rounded border border-warning/25 bg-warning/10 px-1 py-px text-[9px] font-medium text-warning">
+                              待同步
                             </span>
                           ) : null}
                         </button>

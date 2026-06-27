@@ -320,6 +320,12 @@ def run_now(
         logger.info("compute_enriched: adj_factor incremental, %d symbols", len(affected_symbols))
         written_enriched = run_pipeline(symbols=affected_symbols, on_batch_done=_enriched_batch_progress)
         emit("compute_enriched", 88, f"enriched 完成,{len(affected_symbols)} 只个股")
+    elif scope == "focus" and written_daily > 0:
+        # 关注范围可能新增标的但没有新增日期；仍需重算该范围的 enriched。
+        emit("compute_enriched", 65, f"计算关注范围 enriched ({len(universe)} 只)…")
+        logger.info("compute_enriched: focus refresh after daily write, %d symbols", len(universe))
+        written_enriched = run_pipeline(symbols=universe, on_batch_done=_enriched_batch_progress)
+        emit("compute_enriched", 88, f"enriched 完成,{written_enriched} 行")
     else:
         written_enriched = 0
         logger.info("compute_enriched: skip (no new daily, no adj_factor changes)")
@@ -397,6 +403,7 @@ def run_now(
         "scope": scope,
         "universe_size": len(universe),
         "daily_days": new_daily_days,
+        "daily_rows": written_daily,
         "adj_factor_symbols": len(affected_symbols),
         "enriched_days": written_enriched,
         "index_count": index_count,
@@ -417,10 +424,11 @@ def _run_akshare_now(
     Phase 1 intentionally supports manual sync only. Scheduler registration skips
     this path for AkShare to avoid startup/cron network surprises.
     """
+    from app.datasource.stage_matrix import unsupported_pipeline_stages
     from app.services import akshare_sync
 
     emit = on_progress or _noop
-    skipped = ["sync_adj", "sync_minute", "depth5", "financials"]
+    skipped = unsupported_pipeline_stages("akshare")
     scope: UniverseScope = "market" if full_market else "focus"
     universe: list[str] | None = None
     universe_size = 0

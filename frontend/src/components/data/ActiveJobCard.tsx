@@ -119,7 +119,10 @@ export function ActiveJobCard({ job }: { job: PipelineJob }) {
         return (
           <div className="mt-3 grid grid-cols-2 md:grid-cols-5 gap-3 text-xs">
             <Pill label={scopeLabel} value={job.result.universe_size ?? '—'} />
-            <Pill label="日 K" value={cell(null, `${job.result.daily_days ?? 0} 天`)} />
+            <Pill
+              label="日 K"
+              value={cell(null, `${job.result.daily_days ?? 0} 天${job.result.daily_rows != null ? ` / ${job.result.daily_rows} 行` : ''}`)}
+            />
             <Pill label="除权因子" value={cell('sync_adj', `${job.result.adj_factor_symbols ?? 0} 只`)} />
             <Pill label="enriched" value={cell(null, `${job.result.enriched_days ?? 0} 行`)} />
             <Pill label="分钟K" value={cell('sync_minute', `${job.result.minute_rows ?? 0} 行`)} />

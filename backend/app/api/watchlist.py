@@ -82,6 +82,40 @@ _WATCHLIST_COLS = [
 ]
 
 
+def _instrument_name_map(repo, symbols: list[str]) -> dict[str, str]:
+    if not symbols:
+        return {}
+    try:
+        df_i = repo.get_instruments()
+    except Exception:  # noqa: BLE001
+        return {}
+    if df_i.is_empty() or "symbol" not in df_i.columns or "name" not in df_i.columns:
+        return {}
+    matched = df_i.filter(pl.col("symbol").is_in(symbols))
+    return {
+        str(row["symbol"]): str(row["name"] or "")
+        for row in matched.to_dicts()
+        if row.get("symbol") and row.get("name")
+    }
+
+
+def _missing_watchlist_rows(repo, symbols: list[str], existing: set[str] | None = None) -> list[dict]:
+    existing = existing or set()
+    missing = [sym for sym in symbols if sym not in existing]
+    if not missing:
+        return []
+    names = _instrument_name_map(repo, missing)
+    return [
+        {
+            "symbol": sym,
+            "name": names.get(sym),
+            "_missing_enriched": True,
+            "_missing_reason": "not_in_current_data_scope",
+        }
+        for sym in missing
+    ]
+
+
 @router.get("/enriched")
 def watchlist_enriched(
     request: Request,
@@ -97,16 +131,28 @@ def watchlist_enriched(
     repo = request.app.state.repo
     symbols = [r["symbol"] for r in watchlist.list_symbols()]
     if not symbols:
-        return {"rows": [], "as_of": None, "elapsed_ms": 0}
+        return {"rows": [], "as_of": None, "elapsed_ms": 0, "missing_symbols": []}
 
     df_e, cache_date = repo.get_enriched_latest()
     if df_e.is_empty():
-        return {"rows": [], "as_of": None, "elapsed_ms": 0}
+        rows = _missing_watchlist_rows(repo, symbols)
+        return {
+            "rows": rows,
+            "as_of": str(cache_date) if cache_date else None,
+            "elapsed_ms": 0,
+            "missing_symbols": symbols,
+        }
 
     # 按 symbol 过滤
     df = df_e.filter(pl.col("symbol").is_in(symbols))
     if df.is_empty():
-        return {"rows": [], "as_of": str(cache_date) if cache_date else None, "elapsed_ms": 0}
+        rows = _missing_watchlist_rows(repo, symbols)
+        return {
+            "rows": rows,
+            "as_of": str(cache_date) if cache_date else None,
+            "elapsed_ms": 0,
+            "missing_symbols": symbols,
+        }
 
     # JOIN instruments 取 name + float_shares
     df_i = repo.get_instruments()
@@ -183,8 +229,19 @@ def watchlist_enriched(
     df = df.sort("_sort_order").drop("_sort_order")
 
     rows = df.to_dicts()
+    existing_symbols = {str(r.get("symbol")) for r in rows if r.get("symbol")}
+    missing_rows = _missing_watchlist_rows(repo, symbols, existing_symbols)
+    if missing_rows:
+        rows_by_symbol = {str(r.get("symbol")): r for r in rows if r.get("symbol")}
+        rows_by_symbol.update({r["symbol"]: r for r in missing_rows})
+        rows = [rows_by_symbol[sym] for sym in symbols if sym in rows_by_symbol]
     elapsed = (time.perf_counter() - t0) * 1000
-    return {"rows": rows, "as_of": str(cache_date) if cache_date else None, "elapsed_ms": elapsed}
+    return {
+        "rows": rows,
+        "as_of": str(cache_date) if cache_date else None,
+        "elapsed_ms": elapsed,
+        "missing_symbols": [r["symbol"] for r in missing_rows],
+    }
 
 
 def _parse_ext_columns(ext_columns: str) -> list[tuple[str, str]]:

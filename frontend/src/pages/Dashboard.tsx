@@ -488,7 +488,9 @@ export function Dashboard() {
   const isNoKey = settings.data?.mode === 'none'
   // 无本地数据(enriched/daily 都没有)→ 提示去数据页同步
   const ds = dataStatus.data
-  const hasNoData = !!ds && (ds.enriched?.rows ?? 0) === 0 && (ds.daily?.rows ?? 0) === 0
+  const hasDailyData = !!(ds?.daily?.rows || ds?.daily?.trading_days)
+  const hasEnrichedData = !!(ds?.enriched?.rows || ds?.enriched?.trading_days)
+  const hasNoData = !!ds && !hasEnrichedData && !hasDailyData
 
   // 手动刷新: 显示旋转动画; SSE 自动刷新: 静默, 无体感
   const handleRefresh = () => {

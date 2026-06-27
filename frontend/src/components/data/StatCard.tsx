@@ -155,8 +155,10 @@ export function StatCard({
       ? `标的 · ${((stats?.named ?? stats?.rows) ?? 0).toLocaleString()} 个含名称`
       : stats?.fields
         ? '字段 · 复权 · 技术指标'
-        : title === '日 K' && stats?.trading_days
-          ? '日 · A股标的 · 日线'
+        : title === '日 K' && stats?.rows
+          ? `行 · ${(stats?.symbols_covered ?? 0).toLocaleString()} 只标的 · ${(stats?.trading_days ?? 0).toLocaleString()} 日`
+          : title === '日 K' && stats?.trading_days
+            ? '交易日 · 日K分区'
           : stats?.trading_days && !stats?.rows
             ? '日 · A股标的 · 分钟级'
             : (() => {

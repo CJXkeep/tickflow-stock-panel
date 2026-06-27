@@ -119,40 +119,16 @@ def _safe_aggregate(repo, view: str) -> dict | None:
 
 
 def _safe_aggregate_daily(repo, view: str = "kline_daily") -> dict | None:
-    """日K轻量统计 — 零数据扫描。
+    """日K统计。
 
-    从分区目录名获取日期范围和交易日数，不读任何 parquet。
-    标的数从 instruments 小表获取（~5000行，毫秒级）。
+    日线数据规模可控，并且结果有 TTL 缓存；这里返回真实行数和真实覆盖标的，
+    避免前端把 rows=0 误判成"没有抓到日K"。
     """
-    daily_dir = repo.store.data_dir / "kline_daily"
-    if not daily_dir.exists():
-        return None
-    dates: list[str] = []
-    for d in daily_dir.iterdir():
-        if d.is_dir() and d.name.startswith("date="):
-            dates.append(d.name[5:])
-    if not dates:
-        return None
-    dates.sort()
-
-    symbols = _count_instruments_symbols(repo)
-
-    return {
-        "rows": 0,
-        "earliest_date": dates[0],
-        "latest_date": dates[-1],
-        "symbols_covered": symbols,
-        "trading_days": len(dates),
-    }
+    return _safe_aggregate(repo, view)
 
 
 def _safe_aggregate_enriched(repo) -> dict | None:
-    """Enriched 轻量统计 — 零数据扫描。
-
-    字段数从 DESCRIBE 读 schema（不碰数据），毫秒级。
-    日期范围从分区目录名获取（同 minute 策略），不读任何 parquet。
-    标的数从 instruments 小表取。
-    """
+    """Enriched 统计。返回真实行数，同时补充字段数。"""
     # 字段数：读 schema，不碰数据
     fields = 0
     try:
@@ -161,28 +137,10 @@ def _safe_aggregate_enriched(repo) -> dict | None:
     except Exception:  # noqa: BLE001
         pass
 
-    # 日期范围：从分区目录名获取，不扫数据
-    enriched_dir = repo.store.data_dir / "kline_daily_enriched"
-    if not enriched_dir.exists():
+    stats = _safe_aggregate(repo, "kline_enriched")
+    if not stats:
         return None
-    dates: list[str] = []
-    for d in enriched_dir.iterdir():
-        if d.is_dir() and d.name.startswith("date="):
-            dates.append(d.name[5:])
-    if not dates:
-        return None
-    dates.sort()
-
-    symbols = _count_instruments_symbols(repo)
-
-    return {
-        "rows": 0,
-        "fields": fields,
-        "earliest_date": dates[0],
-        "latest_date": dates[-1],
-        "symbols_covered": symbols,
-        "trading_days": len(dates),
-    }
+    return {**stats, "fields": fields}
 
 
 def _count_instruments_symbols(repo) -> int:

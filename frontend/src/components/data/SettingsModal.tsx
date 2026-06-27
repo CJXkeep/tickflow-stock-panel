@@ -20,7 +20,7 @@ export function SettingsModal({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.97, y: 8 }}
         transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-        className={`relative rounded-card border border-border bg-surface shadow-2xl mx-4 w-full ${maxWidth} overflow-hidden`}
+        className={`relative flex max-h-[calc(100vh-2rem)] w-full flex-col overflow-hidden rounded-card border border-border bg-surface shadow-2xl mx-4 ${maxWidth}`}
       >
         <div className="flex items-center justify-between px-5 py-3 border-b border-border">
           <h3 className="text-sm font-medium text-foreground">{title}</h3>
@@ -28,7 +28,7 @@ export function SettingsModal({
             <X className="h-4 w-4" />
           </button>
         </div>
-        <div className="p-5">
+        <div className="overflow-y-auto p-5">
           {children}
         </div>
       </motion.div>

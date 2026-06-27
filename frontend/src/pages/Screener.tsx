@@ -401,6 +401,12 @@ export function Screener() {
 
   const minDate = dataStatus.data?.enriched?.earliest_date ?? ''
   const maxDate = dataStatus.data?.enriched?.latest_date ?? ''
+  const instrumentCount = dataStatus.data?.instruments?.symbols_covered ?? dataStatus.data?.instruments?.rows ?? 0
+  const enrichedCovered = dataStatus.data?.enriched?.symbols_covered ?? 0
+  const partialCoverage = !!instrumentCount && !!enrichedCovered && enrichedCovered < instrumentCount * 0.9
+  const coverageSubtitle = enrichedCovered && instrumentCount
+    ? `基于本地 enriched 表 · 覆盖 ${enrichedCovered.toLocaleString()}/${instrumentCount.toLocaleString()} 标的`
+    : '基于本地 enriched 表 · 毫秒级 SQL'
 
   const batchAdd = useWatchlistBatchAdd()
 
@@ -493,7 +499,7 @@ export function Screener() {
     <>
       <PageHeader
         title="策略"
-        subtitle="基于本地 enriched 表 · 毫秒级 SQL"
+        subtitle={coverageSubtitle}
         right={
           <div className="flex items-center gap-2">
             {/* 开发用：重载策略 */}
@@ -583,6 +589,11 @@ export function Screener() {
       />
 
       <div className="px-8 py-4 space-y-3">
+        {partialCoverage && (
+          <div className="rounded-btn border border-warning/25 bg-warning/8 px-3 py-2 text-xs text-warning/90">
+            当前策略结果仅基于已同步标的，不代表全市场扫描。
+          </div>
+        )}
         {/* 策略卡片 */}
         {cardSize !== 'hidden' && (
         <section>
