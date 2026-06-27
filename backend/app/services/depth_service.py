@@ -14,7 +14,7 @@
     最后拉一次 → 落盘 depth5 parquet(定版)
 
 三层防护节流("设过大设上限, 设过小设最小值"):
-  ① 套餐范围 clamp: Pro 10~120s, Expert 3~300s
+  ① capability 范围 clamp: 由 depth5.batch 的 min_interval/max_interval 决定
   ② 限速安全 clamp: safe = 60/((rpm*0.8)/batches), 涨跌停多就自动放慢
   ③ 系统接管通知: 用户设置会超限时, 推 toast 告知已自动调整
 """
@@ -29,21 +29,18 @@ from pathlib import Path
 
 import polars as pl
 
+from app.tickflow.capabilities import Cap
+
 logger = logging.getLogger(__name__)
 
 
-# 套餐 → (轮询间隔下限s, 上限s)
-TIER_INTERVAL_RANGE: dict[str, tuple[float, float]] = {
-    "pro": (10.0, 120.0),
-    "expert": (3.0, 300.0),
-}
-# 兜底: 其他有 DEPTH5_BATCH 的套餐按 pro 范围
+# 无 interval metadata 时的保守兜底。
 DEFAULT_RANGE = (10.0, 120.0)
 
 # 限速余量: 只用 rpm 的 80%, 给系统其他 depth 调用留空间
 RPM_MARGIN = 0.8
-# 间隔硬下限/上限(任何套餐)
-INTERVAL_HARD_MIN = 10.0
+# 间隔硬下限/上限(任何 provider/capability)
+INTERVAL_HARD_MIN = 1.0
 INTERVAL_HARD_MAX = 300.0
 
 
@@ -267,7 +264,7 @@ class DepthService:
         tf = get_client()
 
         capset = self._get_capset()
-        lim = capset.limits(__import__("app.tickflow.capabilities", fromlist=["Cap"]).Cap.DEPTH5_BATCH)
+        lim = capset.limits(Cap.DEPTH5_BATCH)
         batch_size = (lim.batch if lim and lim.batch else 100)
         rpm = (lim.rpm if lim and lim.rpm else 30)
         # 批间隔 = 60/rpm(匀速)
@@ -470,16 +467,14 @@ class DepthService:
         - user_interval: 用户设置(经套餐 clamp 后)的间隔
         """
         from app.services import preferences
-        from app.tickflow.policy import tier_label
 
         capset = self._get_capset()
-        lim = capset.limits(__import__("app.tickflow.capabilities", fromlist=["Cap"]).Cap.DEPTH5_BATCH)
+        lim = capset.limits(Cap.DEPTH5_BATCH)
         batch_size = (lim.batch if lim and lim.batch else 100)
         rpm = (lim.rpm if lim and lim.rpm else 30)
 
-        # ① 套餐范围 clamp
-        tier = tier_label().split()[0].split("+")[0].strip().lower()
-        lo, hi = TIER_INTERVAL_RANGE.get(tier, DEFAULT_RANGE)
+        # ① capability 范围 clamp
+        lo, hi = self.interval_bounds_for(capset)
         raw_user = preferences.get_depth_polling_interval()
         user_interval = max(lo, min(hi, raw_user))
 
@@ -554,8 +549,21 @@ class DepthService:
 
     def _has_capability(self) -> bool:
         capset = self._get_capset()
-        from app.tickflow.capabilities import Cap
         return capset.has(Cap.DEPTH5_BATCH)
+
+    def get_interval_bounds(self) -> tuple[float, float]:
+        return self.interval_bounds_for(self._get_capset())
+
+    @staticmethod
+    def interval_bounds_for(capset) -> tuple[float, float]:
+        lim = capset.limits(Cap.DEPTH5_BATCH) if capset else None
+        lo = float(lim.min_interval) if lim and lim.min_interval is not None else DEFAULT_RANGE[0]
+        hi = float(lim.max_interval) if lim and lim.max_interval is not None else DEFAULT_RANGE[1]
+        lo = max(INTERVAL_HARD_MIN, lo)
+        hi = min(INTERVAL_HARD_MAX, hi)
+        if hi < lo:
+            hi = lo
+        return lo, hi
 
     def _get_capset(self):
         """获取当前 capset(优先 app.state, 回退 detect)。"""

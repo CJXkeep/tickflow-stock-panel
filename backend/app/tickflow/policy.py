@@ -33,7 +33,8 @@ _CAPSET_CACHE_FILE = "capabilities.json"
 # v3: 探测补全 quote.batch(此前 tiers.yaml 声明了但 _probe_real 漏探测)
 # v4: 5 档重构 —— 新增 none 档(无key/无效key),free 档重定义(走 free-api 服务器,
 #     仅历史日K)。判定改为复权因子分水岭:_classify_tier 接管档位判定。
-_CACHE_SCHEMA_VERSION = 4
+# v5: CapabilityLimits 增加 min_interval/max_interval/max_history_days/realtime_allowed。
+_CACHE_SCHEMA_VERSION = 5
 
 # 探测用最小代价请求:挑流通性最好的 1 只标的试
 _PROBE_SYMBOL = "600000.SH"  # 浦发银行,长期不会退市
@@ -47,6 +48,19 @@ def _load_tiers_yaml() -> dict[str, dict[str, dict[str, Any]]]:
     raise FileNotFoundError("tiers.yaml not found")
 
 
+def _limits_from_dict(limits_dict: dict[str, Any] | None) -> CapabilityLimits:
+    limits_dict = limits_dict or {}
+    return CapabilityLimits(
+        rpm=limits_dict.get("rpm"),
+        batch=limits_dict.get("batch"),
+        subscribe=limits_dict.get("subscribe"),
+        min_interval=limits_dict.get("min_interval"),
+        max_interval=limits_dict.get("max_interval"),
+        max_history_days=limits_dict.get("max_history_days"),
+        realtime_allowed=limits_dict.get("realtime_allowed"),
+    )
+
+
 def _tier_to_capset(tier_def: dict[str, dict[str, Any]]) -> CapabilitySet:
     caps: dict[Cap, CapabilityLimits] = {}
     for cap_name, limits_dict in tier_def.items():
@@ -55,11 +69,7 @@ def _tier_to_capset(tier_def: dict[str, dict[str, Any]]) -> CapabilitySet:
         except ValueError:
             logger.warning("unknown cap in tiers.yaml: %s", cap_name)
             continue
-        caps[cap] = CapabilityLimits(
-            rpm=limits_dict.get("rpm"),
-            batch=limits_dict.get("batch"),
-            subscribe=limits_dict.get("subscribe"),
-        )
+        caps[cap] = _limits_from_dict(limits_dict)
     return CapabilitySet(caps)
 
 
@@ -131,11 +141,7 @@ def _probe_real(tiers: dict) -> tuple[CapabilitySet, list[str]]:
     def try_call(cap: Cap, fn, default_limits: dict[str, Any]) -> None:
         try:
             _call_with_retry(fn)
-            available[cap] = CapabilityLimits(
-                rpm=default_limits.get("rpm"),
-                batch=default_limits.get("batch"),
-                subscribe=default_limits.get("subscribe"),
-            )
+            available[cap] = _limits_from_dict(default_limits)
             log.append(f"✓ {cap}")
         except Exception as e:  # noqa: BLE001
             msg = str(e).lower()
@@ -239,9 +245,9 @@ def _probe_real(tiers: dict) -> tuple[CapabilitySet, list[str]]:
     # websocket 不在探测期试连接(成本太高且阻塞),按档位默认推断
     # 若 expert 的其他 cap 都通,则推断 websocket 也可用
     if (Cap.FINANCIAL in available and Cap.INTRADAY_BATCH in available):
-        available[Cap.WEBSOCKET] = CapabilityLimits(
-            subscribe=defaults(Cap.WEBSOCKET).get("subscribe", 100),
-        )
+        websocket_defaults = dict(defaults(Cap.WEBSOCKET))
+        websocket_defaults.setdefault("subscribe", 100)
+        available[Cap.WEBSOCKET] = _limits_from_dict(websocket_defaults)
         log.append("✓ websocket (inferred from expert tier)")
 
     return CapabilitySet(available), log
@@ -398,19 +404,11 @@ def _override_limits_with_detected_tier(
     for cap, _old_lim in capset.all().items():
         spec = tier_limits.get(cap.value)
         if spec:
-            new_caps[cap] = CapabilityLimits(
-                rpm=spec.get("rpm"),
-                batch=spec.get("batch"),
-                subscribe=spec.get("subscribe"),
-            )
+            new_caps[cap] = _limits_from_dict(spec)
         else:
             # 不在该档定义里(extras),用 expert 档兜底(最宽松)
             expert_spec = tiers.get("expert", {}).get(cap.value, {})
-            new_caps[cap] = CapabilityLimits(
-                rpm=expert_spec.get("rpm"),
-                batch=expert_spec.get("batch"),
-                subscribe=expert_spec.get("subscribe"),
-            )
+            new_caps[cap] = _limits_from_dict(expert_spec)
     return CapabilitySet(new_caps)
 
 
@@ -502,11 +500,7 @@ def _capset_from_json(data: dict[str, Any]) -> CapabilitySet:
             cap = Cap(cap_name)
         except ValueError:
             continue
-        caps[cap] = CapabilityLimits(
-            rpm=lim.get("rpm"),
-            batch=lim.get("batch"),
-            subscribe=lim.get("subscribe"),
-        )
+        caps[cap] = _limits_from_dict(lim)
     return CapabilitySet(caps)
 
 

@@ -10,7 +10,7 @@ import {
   type StrategyParamDef,
 } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
-import { tierRank } from '@/lib/capability-labels'
+import { hasCapability } from '@/lib/capability-labels'
 import { storage } from '@/lib/storage'
 import { fmtPct, fmtPrice, priceColorClass } from '@/lib/format'
 import { boardTag } from '@/lib/board'
@@ -618,10 +618,10 @@ export function StrategyBacktest() {
   const [simMode, setSimMode] = useState<'position' | 'full'>(saved?.mode ?? 'position')
   const [holdingDays, setHoldingDays] = useState(saved?.holdingDays ?? '5')
   const [settingsOpen, setSettingsOpen] = useState(false)
-  // 高颗粒回测（分钟K精确回测）— 开发中，Starter+ 功能
+  // 高颗粒回测（分钟K精确回测）— 开发中，占位功能
   const [highGranularity, setHighGranularity] = useState(false)
   const { data: caps } = useCapabilities()
-  const isFreeTier = tierRank(caps?.label ?? '') < 1
+  const hasMinuteBacktestCap = hasCapability(caps, 'kline.minute.batch')
   const [rangeSettingsOpen, setRangeSettingsOpen] = useState(false)
   const [quickRanges, setQuickRanges] = useState(loadQuickRanges)
   const [settingsTab, setSettingsTab] = useState<AdvancedSettingsTab>('params')
@@ -980,17 +980,17 @@ export function StrategyBacktest() {
               <Gauge className={`h-3 w-3 ${highGranularity ? 'text-amber-400' : 'text-muted/50'}`} />
               <button
                 onClick={() => {
-                  if (isFreeTier) return
+                  if (!hasMinuteBacktestCap) return
                   // 功能开发中，暂不实际启用
                   setHighGranularity(v => !v)
                 }}
-                disabled={isFreeTier}
-                title={isFreeTier
-                  ? '高颗粒回测（分钟K精确回测）：需 Starter+ 档位'
+                disabled={!hasMinuteBacktestCap}
+                title={!hasMinuteBacktestCap
+                  ? '高颗粒回测（分钟K精确回测）：需分钟 K 能力'
                   : '高颗粒回测（分钟K精确回测）：切换后结合每日分钟K更精确回测。⚠️ 开发中，且会显著影响性能、回测很慢。'
                 }
                 className={`group relative inline-flex h-3.5 w-6 items-center rounded-full shrink-0 transition-colors duration-200 ${
-                  isFreeTier ? 'bg-elevated opacity-50 cursor-not-allowed'
+                  !hasMinuteBacktestCap ? 'bg-elevated opacity-50 cursor-not-allowed'
                   : highGranularity ? 'bg-amber-500 cursor-pointer'
                   : 'bg-elevated cursor-pointer'
                 }`}
@@ -1000,13 +1000,13 @@ export function StrategyBacktest() {
                 }`} />
               </button>
               <span className={`text-[9px] font-medium ${highGranularity ? 'text-amber-400' : 'text-muted/50'}`}>分钟K</span>
-              {isFreeTier && (
-                <span className="text-[8px] text-accent/70 font-medium bg-accent/10 px-1 py-px rounded">Starter+</span>
+              {!hasMinuteBacktestCap && (
+                <span className="text-[8px] text-accent/70 font-medium bg-accent/10 px-1 py-px rounded">分钟K</span>
               )}
             </div>
           </div>
           {/* 高颗粒开启时的警告条 */}
-          {highGranularity && !isFreeTier && (
+          {highGranularity && hasMinuteBacktestCap && (
             <div className="mb-2 flex items-start gap-1.5 rounded-btn border border-amber-400/30 bg-amber-400/5 px-2 py-1.5">
               <Zap className="h-3 w-3 text-amber-400 shrink-0 mt-px" />
               <div className="text-[10px] leading-snug text-amber-400/90">

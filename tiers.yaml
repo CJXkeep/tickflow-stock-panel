@@ -35,38 +35,38 @@ free:
   kline.daily.batch:     { rpm: 60, batch: 50 }   # [补] 批量日K(此前缺失)
 
 starter:
-  quote.by_symbol:       { rpm: 60, batch: 50 }
-  quote.batch:           { rpm: 60, batch: 50 }   # [新增-推断] 批量行情(同 by_symbol 限速,FAQ:Starter+ 含批量)
-  quote.pool:            { rpm: 20 }
+  quote.by_symbol:       { rpm: 60, batch: 50, realtime_allowed: true, min_interval: 3, max_interval: 60 }
+  quote.batch:           { rpm: 60, batch: 50, realtime_allowed: true, min_interval: 3, max_interval: 60 }   # [新增-推断] 批量行情(同 by_symbol 限速,FAQ:Starter+ 含批量)
+  quote.pool:            { rpm: 20, realtime_allowed: true, min_interval: 3, max_interval: 60 }
   kline.daily.batch:     { rpm: 30, batch: 100 }
   kline.daily.by_symbol: { rpm: 60, batch: 1 }
   adj_factor:            { rpm: 30, batch: 50 }
 
 pro:
-  quote.by_symbol:        { rpm: 120, batch: 100 }
-  quote.batch:            { rpm: 120, batch: 100 }  # [新增-推断] 批量行情(同 by_symbol 限速)
-  quote.pool:             { rpm: 60 }
+  quote.by_symbol:        { rpm: 120, batch: 100, realtime_allowed: true, min_interval: 2, max_interval: 60 }
+  quote.batch:            { rpm: 120, batch: 100, realtime_allowed: true, min_interval: 2, max_interval: 60 }  # [新增-推断] 批量行情(同 by_symbol 限速)
+  quote.pool:             { rpm: 60, realtime_allowed: true, min_interval: 2, max_interval: 60 }
   kline.daily.batch:      { rpm: 60,  batch: 100 }
   kline.daily.by_symbol:  { rpm: 120, batch: 1 }
-  kline.minute.batch:     { rpm: 30,  batch: 100 }
+  kline.minute.batch:     { rpm: 30,  batch: 100, max_history_days: 15 }
   kline.minute.by_symbol: { rpm: 60,  batch: 1 }
   intraday:               { rpm: 30,  batch: 1 }
   depth5:                 { rpm: 60,  batch: 1 }     # 按标的查(单只):官方 60rpm/1
-  depth5.batch:           { rpm: 30,  batch: 100 }   # 批量查(新增):官方 30rpm/100
+  depth5.batch:           { rpm: 30,  batch: 100, min_interval: 10, max_interval: 120 }   # 批量查(新增):官方 30rpm/100
   adj_factor:             { rpm: 60,  batch: 100 }
 
 expert:
-  quote.by_symbol:        { rpm: 300, batch: 500 }
-  quote.batch:            { rpm: 300, batch: 500 }  # [新增-推断] 批量行情(同 by_symbol 限速)
-  quote.pool:             { rpm: 120 }
+  quote.by_symbol:        { rpm: 300, batch: 500, realtime_allowed: true, min_interval: 1, max_interval: 60 }
+  quote.batch:            { rpm: 300, batch: 500, realtime_allowed: true, min_interval: 1, max_interval: 60 }  # [新增-推断] 批量行情(同 by_symbol 限速)
+  quote.pool:             { rpm: 120, realtime_allowed: true, min_interval: 1, max_interval: 60 }
   kline.daily.batch:      { rpm: 120, batch: 200 }
   kline.daily.by_symbol:  { rpm: 300, batch: 1 }
-  kline.minute.batch:     { rpm: 60,  batch: 200 }
+  kline.minute.batch:     { rpm: 60,  batch: 200, max_history_days: 180 }
   kline.minute.by_symbol: { rpm: 120, batch: 1 }
   intraday:               { rpm: 120, batch: 1 }
   intraday.batch:         { rpm: 60,  batch: 200 }
   depth5:                 { rpm: 120, batch: 1 }    # 按标的查(单只):官方 120rpm/1
-  depth5.batch:           { rpm: 60,  batch: 200 }  # 批量查(新增):官方 60rpm/200
+  depth5.batch:           { rpm: 60,  batch: 200, min_interval: 3, max_interval: 300 }  # 批量查(新增):官方 60rpm/200
   adj_factor:             { rpm: 120, batch: 200 }
   websocket:              { subscribe: 100 }
   financial:              { rpm: 120, batch: 100 }

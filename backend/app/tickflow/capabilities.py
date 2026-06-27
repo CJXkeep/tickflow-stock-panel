@@ -33,6 +33,10 @@ class CapabilityLimits:
     rpm: int | None = None        # 次/分钟,None 表示未知或不限
     batch: int | None = None      # 标的/次
     subscribe: int | None = None  # WS 订阅上限
+    min_interval: float | None = None      # 最快轮询间隔(秒)
+    max_interval: float | None = None      # 最慢轮询间隔(秒)
+    max_history_days: int | None = None    # 最大历史扩展天数
+    realtime_allowed: bool | None = None   # 是否允许实时行情
 
 
 class CapabilitySet:
@@ -62,6 +66,10 @@ class CapabilitySet:
                 "rpm": lim.rpm,
                 "batch": lim.batch,
                 "subscribe": lim.subscribe,
+                "min_interval": lim.min_interval,
+                "max_interval": lim.max_interval,
+                "max_history_days": lim.max_history_days,
+                "realtime_allowed": lim.realtime_allowed,
             }
             for cap, lim in self._caps.items()
         }

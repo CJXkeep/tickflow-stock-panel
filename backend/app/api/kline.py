@@ -656,13 +656,34 @@ import concurrent.futures as _cf
 _long_task_executor = _cf.ThreadPoolExecutor(max_workers=2, thread_name_prefix="long-task")
 
 
+def _resolve_minute_history_days(capset, value: int, unit: str) -> int:
+    """按 kline.minute.batch capability 解析分钟K历史扩展天数。"""
+    from app.tickflow.capabilities import Cap
+
+    lim = capset.limits(Cap.KLINE_MINUTE_BATCH)
+    if not lim:
+        raise HTTPException(status_code=403, detail="需要分钟 K 批量能力")
+    max_days = lim.max_history_days
+    if max_days is None or max_days <= 0:
+        raise HTTPException(status_code=403, detail="当前分钟K能力未声明历史扩展范围")
+    if unit == "month" and max_days < 30:
+        raise HTTPException(
+            status_code=403,
+            detail="当前分钟K能力不支持按月扩展历史",
+        )
+    requested_days = value * 30 if unit == "month" else value
+    total_days = min(requested_days, max_days)
+    if total_days <= 0:
+        raise HTTPException(status_code=400, detail="扩展范围无效")
+    return total_days
+
+
 @router.post("/extend_minute_history")
 async def extend_minute_history(request: Request):
     """向前扩展分钟K历史数据 — 仅拉数据,不做任何后续处理。
 
     body: { "value": int, "unit": "day"|"month" }
-    - day 单位:1~15 天(所有有分钟K权限的套餐可用)
-    - month 单位:1~6 月(每月按 30 天计,即最多 180 天)—— 仅 Expert+ 可用
+    - day/month 均按 kline.minute.batch.max_history_days 做 capability clamp
     返回 job_id,可轮询 /api/pipeline/jobs 查看进度。
     """
     if settings.provider_is_akshare:
@@ -682,29 +703,8 @@ async def extend_minute_history(request: Request):
         repo = request.app.state.repo
         capset = request.app.state.capabilities
 
-        from app.tickflow.capabilities import Cap
-        if not capset.has(Cap.KLINE_MINUTE_BATCH):
-            raise HTTPException(status_code=403, detail="需要 Pro+ 权限 (batch minute K-line)")
-
-        # month 单位(按月扩展更长的分钟K历史)仅 Expert+ 开放;Pro 仅可用 day
-        if unit == "month":
-            from app.tickflow.policy import tier_label
-            base_tier = tier_label().split()[0].split("+")[0].strip().lower()
-            if base_tier != "expert":
-                raise HTTPException(
-                    status_code=403,
-                    detail="按月扩展分钟K历史需要 Expert 及以上套餐",
-                )
-
-        # 计算天数上限:day 最多 15 天;month 最多 6 月(180 天)
         from datetime import timedelta
-        if unit == "month":
-            total_days = min(value * 30, 180)
-        else:
-            total_days = min(value, 15)
-
-        if total_days <= 0:
-            raise HTTPException(status_code=400, detail="扩展范围无效")
+        total_days = _resolve_minute_history_days(capset, value, unit)
 
         from app.services.pipeline_jobs import job_store
         from app.api.data import invalidate_storage_cache

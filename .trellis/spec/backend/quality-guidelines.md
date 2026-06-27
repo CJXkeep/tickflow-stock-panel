@@ -36,6 +36,8 @@ local-data gaps and provider failures.
 - Refresh relevant caches after writes that affect repository hot paths.
 - Keep capability-gated behavior explicit and return 403 for missing capability
   assertions.
+- Use `CapabilitySet` presence and `CapabilityLimits` fields for provider or
+  tier feature gates; keep `tier_label()` for display and diagnostics only.
 
 ---
 

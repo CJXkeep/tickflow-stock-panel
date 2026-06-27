@@ -27,12 +27,26 @@ export interface CapabilityLimits {
   rpm: number | null
   batch: number | null
   subscribe: number | null
+  min_interval?: number | null
+  max_interval?: number | null
+  max_history_days?: number | null
+  realtime_allowed?: boolean | null
+}
+
+export interface ProviderStage {
+  id: string
+  label: string
+  status: 'supported' | 'unsupported' | 'manual_only' | 'disabled' | 'capability_required'
+  provider_label: string
+  message?: string | null
+  capability?: string | null
 }
 
 export interface CapabilitiesResponse {
   label: string
   provider?: string
   capabilities: Record<string, CapabilityLimits>
+  provider_stages?: ProviderStage[]
 }
 
 // ===== Financials =====
@@ -764,7 +778,7 @@ export const api = {
       body: JSON.stringify({ hour, minute }),
     }),
   updateDepthPollingInterval: (interval: number) =>
-    request<{ depth_polling_interval: number }>('/api/settings/preferences/depth-polling-interval', {
+    request<{ depth_polling_interval: number; min_interval?: number; max_interval?: number }>('/api/settings/preferences/depth-polling-interval', {
       method: 'PUT',
       body: JSON.stringify({ interval }),
     }),
@@ -948,7 +962,7 @@ export const api = {
     request<{ removed: number }>('/api/watchlist', { method: 'DELETE' }),
   watchlistQuotes: () => request<{ quotes: Quote[] }>('/api/watchlist/quotes'),
   watchlistEnriched: (extColumns?: string) =>
-    request<{ rows: any[]; as_of: string | null; elapsed_ms: number }>(
+    request<{ rows: any[]; as_of: string | null; elapsed_ms: number; missing_symbols?: string[] }>(
       extColumns
         ? `/api/watchlist/enriched?ext_columns=${encodeURIComponent(extColumns)}`
         : '/api/watchlist/enriched',
@@ -1359,6 +1373,7 @@ export interface PipelineJob {
     scope?: 'focus' | 'market'
     universe_size: number
     daily_days: number
+    daily_rows?: number
     adj_factor_symbols: number
     enriched_days: number
     index_count?: number

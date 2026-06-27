@@ -340,7 +340,7 @@ def save_ai_settings(req: AiSettingsIn) -> dict:
 # ===== 偏好设置 =====
 
 def _realtime_allowed() -> bool:
-    """当前档位是否允许实时行情(none/free 不允许)。"""
+    """当前 provider/capability 是否允许实时行情。"""
     from app.services.quote_service import QuoteService
     return QuoteService.is_realtime_allowed()
 
@@ -529,7 +529,7 @@ def update_realtime_quotes(req: RealtimeQuotesPrefs, request: Request) -> dict:
     from app.services import preferences
     qs = getattr(request.app.state, "quote_service", None)
 
-    allowed = qs.is_realtime_allowed() if qs else _realtime_allowed()
+    allowed = qs.realtime_allowed() if qs else _realtime_allowed()
     if req.realtime_quotes_enabled and not allowed:
         # 当前档位不允许开启实时行情 — 强制关闭
         preferences.save({"realtime_quotes_enabled": False})
@@ -621,28 +621,33 @@ def update_system_notify(req: SystemNotifyPrefsIn) -> dict:
 
 @router.put("/preferences/quote-interval")
 def update_quote_interval(req: QuoteIntervalIn, request: Request) -> dict:
-    """更新行情轮询间隔。按档位自动 clamp。"""
+    """更新行情轮询间隔。按 capability limits 自动 clamp。"""
     qs = getattr(request.app.state, "quote_service", None)
     if not qs:
-        return {"interval": req.interval, "min_interval": qs.get_min_interval(), "max_interval": 60.0}
+        from app.services.quote_service import QuoteService
+        lo, hi = QuoteService.interval_bounds_for(getattr(request.app.state, "capabilities", None))
+        clamped = max(lo, min(hi, req.interval))
+        return {"interval": clamped, "min_interval": lo, "max_interval": hi}
     clamped = qs.set_interval(req.interval)
     return {
         "interval": clamped,
         "min_interval": qs.get_min_interval(),
-        "max_interval": qs.MAX_INTERVAL,
+        "max_interval": qs.get_max_interval(),
     }
 
 
 @router.get("/preferences/quote-interval")
 def get_quote_interval(request: Request) -> dict:
-    """获取当前行情轮询间隔和档位限制。"""
+    """获取当前行情轮询间隔和 capability 限制。"""
     qs = getattr(request.app.state, "quote_service", None)
     if not qs:
-        return {"interval": 10.0, "min_interval": 5.0, "max_interval": 60.0}
+        from app.services.quote_service import QuoteService
+        lo, hi = QuoteService.interval_bounds_for(getattr(request.app.state, "capabilities", None))
+        return {"interval": QuoteService.DEFAULT_INTERVAL, "min_interval": lo, "max_interval": hi}
     return {
         "interval": qs._interval,
         "min_interval": qs.get_min_interval(),
-        "max_interval": qs.MAX_INTERVAL,
+        "max_interval": qs.get_max_interval(),
     }
 
 
@@ -955,13 +960,21 @@ class DepthPollingIntervalIn(BaseModel):
 
 @router.put("/preferences/depth-polling-interval")
 def update_depth_polling_interval(req: DepthPollingIntervalIn, request: Request) -> dict:
-    """保存五档盘口盘中轮询间隔(秒)。需 Pro+。"""
+    """保存五档盘口盘中轮询间隔(秒)。需 depth5.batch capability。"""
     from app.tickflow.capabilities import Cap
-    request.app.state.capabilities.require(Cap.DEPTH5_BATCH)
+    capset = request.app.state.capabilities
+    capset.require(Cap.DEPTH5_BATCH)
 
     from app.services import preferences
-    interval = preferences.set_depth_polling_interval(req.interval)
-    return {"depth_polling_interval": interval}
+    depth_svc = getattr(request.app.state, "depth_service", None)
+    if depth_svc:
+        lo, hi = depth_svc.get_interval_bounds()
+    else:
+        from app.services.depth_service import DepthService
+        lo, hi = DepthService.interval_bounds_for(capset)
+    interval = max(lo, min(hi, req.interval))
+    interval = preferences.set_depth_polling_interval(interval)
+    return {"depth_polling_interval": interval, "min_interval": lo, "max_interval": hi}
 
 
 class DepthFinalizeTimeIn(BaseModel):

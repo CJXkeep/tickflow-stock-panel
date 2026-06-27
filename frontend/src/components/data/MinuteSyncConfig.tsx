@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
-import { api } from '@/lib/api'
+import { api, type CapabilitiesResponse } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
-import { isExpertOrAbove } from '@/lib/capability-labels'
+import { canUseMinuteMonths, minuteMaxHistoryDays } from '@/lib/capability-labels'
 
-export function MinuteSyncConfig({ caps, isRunning, onStart }: { caps: { label: string; capabilities: Record<string, { rpm: number | null; batch: number | null; subscribe: number | null }> } | undefined; isRunning: boolean; onStart: () => void }) {
+export function MinuteSyncConfig({ caps, isRunning, onStart }: { caps: CapabilitiesResponse | undefined; isRunning: boolean; onStart: () => void }) {
   const qc = useQueryClient()
   const prefs = useQuery({
     queryKey: QK.preferences,
@@ -89,7 +89,7 @@ export function MinuteSyncConfig({ caps, isRunning, onStart }: { caps: { label: 
 
       <div className="pt-2 border-t border-border space-y-2.5">
         <div className="text-[10px] text-secondary">向前扩展历史数据</div>
-        <MinuteExtendControls hasMinuteCap={hasMinuteCap} tierLabel={caps?.label ?? ''} isRunning={isRunning} onStart={onStart} />
+        <MinuteExtendControls hasMinuteCap={hasMinuteCap} caps={caps} isRunning={isRunning} onStart={onStart} />
       </div>
 
       <div className="text-[10px] text-muted">
@@ -99,10 +99,11 @@ export function MinuteSyncConfig({ caps, isRunning, onStart }: { caps: { label: 
   )
 }
 
-function MinuteExtendControls({ hasMinuteCap, tierLabel, isRunning, onStart }: { hasMinuteCap: boolean; tierLabel: string; isRunning: boolean; onStart: () => void }) {
+function MinuteExtendControls({ hasMinuteCap, caps, isRunning, onStart }: { hasMinuteCap: boolean; caps: CapabilitiesResponse | undefined; isRunning: boolean; onStart: () => void }) {
   const qc = useQueryClient()
-  // 月单位(按月扩展更长的分钟K历史)仅 Expert+ 开放;Pro 仅可用"天"(1~15 天)
-  const canUseMonth = isExpertOrAbove(tierLabel)
+  const maxHistoryDays = minuteMaxHistoryDays(caps)
+  const canExtendHistory = hasMinuteCap && maxHistoryDays > 0
+  const canUseMonth = canExtendHistory && canUseMinuteMonths(caps)
   const [unit, setUnit] = useState<'day' | 'month'>('day')
   const [value, setValue] = useState(5)
   const [confirmOpen, setConfirmOpen] = useState(false)
@@ -124,10 +125,22 @@ function MinuteExtendControls({ hasMinuteCap, tierLabel, isRunning, onStart }: {
     },
   })
 
-  // 各单位上限:day 15 天,month 6 月(180 天)
-  const maxValue = unit === 'month' ? 6 : 15
+  const maxValue = canExtendHistory
+    ? (unit === 'month'
+      ? Math.max(1, Math.floor(maxHistoryDays / 30))
+      : Math.max(1, maxHistoryDays))
+    : 1
+
+  useEffect(() => {
+    if (canExtendHistory) setValue(v => Math.min(v, maxValue))
+  }, [canExtendHistory, maxValue])
+
+  useEffect(() => {
+    if (!canUseMonth && unit === 'month') setUnit('day')
+  }, [canUseMonth, unit])
 
   const handleFetch = () => {
+    if (!canExtendHistory) return
     if (!hasMinuteData) {
       setConfirmOpen(true)
     } else {
@@ -137,9 +150,12 @@ function MinuteExtendControls({ hasMinuteCap, tierLabel, isRunning, onStart }: {
 
   // 切换单位时把 value clamp 到新单位的上限
   const switchUnit = (u: 'day' | 'month') => {
+    if (!canExtendHistory) return
     if (u === unit) return
     setUnit(u)
-    const max = u === 'month' ? 6 : 15
+    const max = u === 'month'
+      ? Math.max(1, Math.floor(maxHistoryDays / 30))
+      : Math.max(1, maxHistoryDays)
     setValue(v => Math.min(v, max))
   }
 
@@ -149,7 +165,7 @@ function MinuteExtendControls({ hasMinuteCap, tierLabel, isRunning, onStart }: {
         <div className="flex items-center">
           <button
             onClick={() => setValue(Math.max(1, value - 1))}
-            disabled={!hasMinuteCap || isRunning || extend.isPending}
+            disabled={!canExtendHistory || isRunning || extend.isPending || value <= 1}
             className="h-6 w-6 flex items-center justify-center rounded-l-btn bg-elevated border border-border text-secondary hover:bg-border/50 disabled:opacity-30 transition-colors text-xs"
           >−</button>
           <div className="h-6 w-8 flex items-center justify-center border-y border-border text-[11px] font-mono tabular-nums text-foreground bg-base">
@@ -157,7 +173,7 @@ function MinuteExtendControls({ hasMinuteCap, tierLabel, isRunning, onStart }: {
           </div>
           <button
             onClick={() => setValue(Math.min(maxValue, value + 1))}
-            disabled={!hasMinuteCap || isRunning || extend.isPending || value >= maxValue}
+            disabled={!canExtendHistory || isRunning || extend.isPending || value >= maxValue}
             className="h-6 w-6 flex items-center justify-center rounded-r-btn bg-elevated border border-border text-secondary hover:bg-border/50 disabled:opacity-30 transition-colors text-xs"
           >+</button>
         </div>
@@ -181,7 +197,7 @@ function MinuteExtendControls({ hasMinuteCap, tierLabel, isRunning, onStart }: {
 
       <button
         onClick={handleFetch}
-        disabled={!hasMinuteCap || isRunning || extend.isPending}
+        disabled={!canExtendHistory || isRunning || extend.isPending}
         className="w-full inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-btn bg-accent/90 text-base text-xs font-medium hover:bg-accent disabled:opacity-40 disabled:pointer-events-none transition-colors duration-150"
       >
         {extend.isPending ? (
@@ -190,6 +206,10 @@ function MinuteExtendControls({ hasMinuteCap, tierLabel, isRunning, onStart }: {
           <>获取数据</>
         )}
       </button>
+
+      {hasMinuteCap && !canExtendHistory && (
+        <div className="text-[10px] text-warning/80">当前能力未声明历史扩展范围</div>
+      )}
 
       {confirmOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center">

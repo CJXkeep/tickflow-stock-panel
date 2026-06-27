@@ -68,3 +68,5 @@ Use defensive rendering for market data:
   response types in `api.ts` or a focused lib module.
 - Do not make product labels the source of truth for behavior. Use ids, routes,
   or explicit literal fields.
+- Do not use tier labels or rank helpers for provider capability gates. Use
+  `/api/capabilities` fields and capability limit predicates instead.

@@ -1,3 +1,5 @@
+import type { CapabilitiesResponse, CapabilityLimits } from '@/lib/api'
+
 // capability 内部名 → 用户能理解的中文标签
 export const CAP_LABELS: Record<string, { name: string; hint: string }> = {
   'quote.by_symbol':         { name: '实时行情(按标的)', hint: '查询单只股票当前价' },
@@ -27,6 +29,52 @@ export function tierRank(label: string): number {
 
 export function isExpertOrAbove(label: string): boolean {
   return tierRank(label) >= EXPERT_RANK
+}
+
+type CapabilitySource = Pick<CapabilitiesResponse, 'provider' | 'capabilities'> | undefined | null
+
+const QUOTE_REALTIME_CAPS = ['quote.pool', 'quote.batch', 'quote.by_symbol'] as const
+
+function limitsOf(caps: CapabilitySource, cap: string): CapabilityLimits | undefined {
+  return caps?.capabilities?.[cap]
+}
+
+export function hasCapability(caps: CapabilitySource, cap: string): boolean {
+  return !!limitsOf(caps, cap)
+}
+
+export function isRealtimeAllowed(caps: CapabilitySource): boolean {
+  if (!caps || caps.provider === 'akshare') return false
+  return QUOTE_REALTIME_CAPS.some(cap => limitsOf(caps, cap)?.realtime_allowed === true)
+}
+
+export function quotePollingRange(caps: CapabilitySource): { lo: number; hi: number } {
+  const lim = QUOTE_REALTIME_CAPS
+    .map(cap => limitsOf(caps, cap))
+    .find(l => l?.realtime_allowed === true)
+  const lo = lim?.min_interval ?? 10
+  const hi = Math.max(lo, lim?.max_interval ?? 60)
+  return { lo, hi }
+}
+
+export function depthPollingRange(caps: CapabilitySource): { lo: number; hi: number } {
+  const lim = limitsOf(caps, 'depth5.batch')
+  const lo = lim?.min_interval ?? 10
+  const hi = Math.max(lo, lim?.max_interval ?? 120)
+  return { lo, hi }
+}
+
+export function minuteMaxHistoryDays(caps: CapabilitySource): number {
+  return limitsOf(caps, 'kline.minute.batch')?.max_history_days ?? 0
+}
+
+export function canUseMinuteMonths(caps: CapabilitySource): boolean {
+  return minuteMaxHistoryDays(caps) >= 30
+}
+
+export function canUsePremiumEndpoint(caps: CapabilitySource): boolean {
+  if (!caps || caps.provider === 'akshare') return false
+  return hasCapability(caps, 'websocket') || hasCapability(caps, 'financial')
 }
 
 /** 档位完整样式(tag 背景 + 圆点 + 文字渐变), 与左侧菜单 TierBadge 一致 */

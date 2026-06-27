@@ -28,6 +28,7 @@ import {
 } from '@/lib/useSharedQueries'
 import { useToggleRealtimeQuotes, useUpdateQuoteInterval } from '@/lib/useSharedMutations'
 import { QK } from '@/lib/queryKeys'
+import { isRealtimeAllowed } from '@/lib/capability-labels'
 import { PageHeader } from '@/components/PageHeader'
 import { formatScheduleDatePart, formatScheduleTimePart, isToday } from '@/lib/format'
 
@@ -191,7 +192,7 @@ export function Data() {
   const updateInterval = useUpdateQuoteInterval()
 
   const realtimeEnabled = prefs.data?.realtime_quotes_enabled ?? false
-  const realtimeAllowed = prefs.data?.realtime_allowed ?? true
+  const realtimeAllowed = prefs.data?.realtime_allowed ?? isRealtimeAllowed(caps.data)
   const isAkShare = settings.data?.data_provider === 'akshare'
   const providerLabel = settings.data?.provider_label ?? 'TickFlow'
   const focusCount = focusUniverse.data?.count ?? null
@@ -228,7 +229,16 @@ export function Data() {
   const isLoading = status.isLoading
   const isRunning = job.data?.status === 'running' || job.data?.status === 'pending'
   const isStarting = startSync.isPending || startFullMarketSync.isPending
-  const hasData = !!(s?.instruments?.rows || s?.daily?.rows)
+  const hasDailyData = !!(s?.daily?.rows || s?.daily?.trading_days)
+  const hasData = !!(s?.instruments?.rows || hasDailyData)
+  const instrumentCount = s?.instruments?.symbols_covered ?? s?.instruments?.rows ?? 0
+  const enrichedCovered = s?.enriched?.symbols_covered ?? 0
+  const dailyCovered = s?.daily?.symbols_covered ?? 0
+  const coverageText = enrichedCovered && instrumentCount
+    ? `指标覆盖 ${enrichedCovered.toLocaleString()}/${instrumentCount.toLocaleString()}`
+    : dailyCovered && instrumentCount
+      ? `日K覆盖 ${dailyCovered.toLocaleString()}/${instrumentCount.toLocaleString()}`
+      : '关注范围同步 · 手动重数据 · 存储状态'
   const indexOverviewStats = s ? {
     rows: 0,
     earliest_date: s.index_daily?.earliest_date ?? s.index_enriched?.earliest_date ?? null,
@@ -302,7 +312,7 @@ export function Data() {
       <div ref={topRef} />
       <PageHeader
         title="数据"
-        subtitle="关注范围同步 · 手动重数据 · 存储状态"
+        subtitle={coverageText}
         right={
           <div className="flex items-center gap-3">
             <span className="inline-flex items-center gap-1.5 rounded-btn border border-border bg-surface px-2 py-1 text-xs text-secondary">
@@ -778,7 +788,7 @@ export function Data() {
       {showEndpointTest && (
         <EndpointTestDialog
           hasKey={settings.data?.mode === 'api_key'}
-          tierLabel={settings.data?.tier_label ?? ''}
+          caps={caps.data}
           currentEndpoint={settings.data?.current_endpoint ?? ''}
           onClose={() => setShowEndpointTest(false)}
         />

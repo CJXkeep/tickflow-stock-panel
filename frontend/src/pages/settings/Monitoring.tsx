@@ -18,7 +18,7 @@ import {
 import { useUpdateQuoteInterval, useToggleRealtimeQuotes } from '@/lib/useSharedMutations'
 import { api } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
-import { tierRank } from '@/lib/capability-labels'
+import { isRealtimeAllowed } from '@/lib/capability-labels'
 import { toast } from '@/components/Toast'
 import { DepthConfigContent } from '@/components/data/DepthConfigCard'
 
@@ -46,8 +46,7 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
   const { data: intervalData } = useQuoteInterval()
   const updateInterval = useUpdateQuoteInterval()
   const toggleQuote = useToggleRealtimeQuotes()
-  // none/free 档(无实时行情权限)→ rank < starter(1)
-  const isFreeTier = tierRank(caps?.label ?? '') < 1
+  const realtimeAllowed = isRealtimeAllowed(caps)
   const realtimeEnabled = prefs?.realtime_quotes_enabled ?? false
   const refreshPages = prefs?.sse_refresh_pages ?? {}
   const limitLadderMonitor = prefs?.limit_ladder_monitor_enabled ?? false
@@ -125,35 +124,12 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
     }
   }, [highlight])
 
-  // Free 档位 — 显示升级提示
-  if (isFreeTier) {
-    return (
-      <div className="flex flex-col items-center justify-center py-20 text-center">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl
-                        bg-gradient-to-br from-purple-500/20 to-blue-500/20 mb-5">
-          <Activity className="h-7 w-7 text-purple-400" />
-        </div>
-        <h2 className="text-lg font-medium text-foreground mb-2">实时监控</h2>
-        <p className="text-sm text-secondary max-w-md mb-6">
-          实时行情轮询、策略监控等功能需要 Starter 及以上档位。
-          升级后可配置轮询间隔、选择监控策略池。
-        </p>
-        <a
-          href="/settings?tab=account"
-          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-btn
-                     bg-accent text-white text-sm font-medium
-                     hover:bg-accent/90 transition-colors"
-        >
-          配置 API Key 升级
-        </a>
-      </div>
-    )
-  }
-
   return (
     <div className="grid grid-cols-1 lg:grid-cols-[1fr_1fr] gap-6 max-w-5xl">
       {/* ========== 左列 ========== */}
       <div className="space-y-6">
+        {realtimeAllowed ? (
+          <>
         {/* 行情状态 — 开关 + 间隔 */}
         <Card icon={Activity} title="行情轮询">
           <ToggleRow
@@ -233,6 +209,20 @@ export function SettingsMonitoringPanel({ highlight }: { highlight?: string } = 
             />
           </div>
         </Card>
+          </>
+        ) : (
+          <Card icon={Activity} title="实时行情" badge="不可用">
+            <p className="text-xs text-secondary mb-4">
+              当前 provider 未暴露实时行情能力,行情轮询、SSE 刷新和左侧指数实时点位已停用。
+            </p>
+            <a
+              href="/settings?tab=account"
+              className="inline-flex items-center gap-2 px-3 py-1.5 rounded-btn bg-accent/15 text-accent text-xs font-medium hover:bg-accent/25 transition-colors"
+            >
+              配置 API Key
+            </a>
+          </Card>
+        )}
       </div>
 
       {/* ========== 右列 ========== */}

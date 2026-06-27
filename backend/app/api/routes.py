@@ -5,6 +5,7 @@ from fastapi import APIRouter
 
 from app import __version__
 from app.config import settings
+from app.datasource.stage_matrix import provider_stage_matrix
 from app.tickflow import client as tf_client
 from app.tickflow.policy import detect_capabilities, tier_label
 
@@ -30,6 +31,7 @@ def capabilities() -> dict:
         "label": tier_label(),
         "provider": settings.data_provider.strip().lower(),
         "capabilities": capset.to_dict(),
+        "provider_stages": provider_stage_matrix(settings.data_provider),
     }
 
 
@@ -41,4 +43,5 @@ def redetect() -> dict:
         "label": tier_label(),
         "provider": settings.data_provider.strip().lower(),
         "capabilities": capset.to_dict(),
+        "provider_stages": provider_stage_matrix(settings.data_provider),
     }

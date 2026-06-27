@@ -2,9 +2,9 @@ import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Wifi, Play, Loader2, X, Check, Crown } from 'lucide-react'
-import { api, type EndpointItem } from '@/lib/api'
+import { api, type CapabilitiesResponse, type EndpointItem } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
-import { EXPERT_RANK, tierRank } from '@/lib/capability-labels'
+import { canUsePremiumEndpoint } from '@/lib/capability-labels'
 
 interface EpResult {
   ok: boolean
@@ -16,7 +16,7 @@ interface EpResult {
   error?: string
 }
 
-export function EndpointTestDialog({ hasKey, tierLabel, currentEndpoint, onClose }: { hasKey: boolean; tierLabel: string; currentEndpoint: string; onClose: () => void }) {
+export function EndpointTestDialog({ hasKey, caps, currentEndpoint, onClose }: { hasKey: boolean; caps?: CapabilitiesResponse; currentEndpoint: string; onClose: () => void }) {
   const qc = useQueryClient()
   const [results, setResults] = useState<Record<string, EpResult | null>>({})
   const [testing, setTesting] = useState<Record<string, boolean>>({})
@@ -53,8 +53,7 @@ export function EndpointTestDialog({ hasKey, tierLabel, currentEndpoint, onClose
 
   const anyTesting = Object.values(testing).some(Boolean)
   const isFree = !hasKey
-  // 专线端点需 Expert 及以上套餐;Free 模式必然不可用
-  const canUsePremium = !isFree && tierRank(tierLabel) >= EXPERT_RANK
+  const canUsePremium = !isFree && canUsePremiumEndpoint(caps)
   const currentLabel = endpoints.find(ep => ep.url === currentEndpoint)?.label ?? currentEndpoint
 
   async function applyEndpoint(url: string) {
