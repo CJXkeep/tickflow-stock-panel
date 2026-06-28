@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date
+from datetime import date, datetime
 
 import polars as pl
 
@@ -95,6 +95,54 @@ class AkShareSource:
             return raw
         return self._normalize_daily(raw, normalize_cn_symbol(symbol))
 
+    def stock_minute(self, symbol: str, trade_date: date) -> pl.DataFrame:
+        """Best-effort single-stock 1m bars for chart fallback only."""
+        ak = _ak()
+        norm = normalize_cn_symbol(symbol)
+        code = symbol_to_ak_code(norm)
+        start_dt = datetime(trade_date.year, trade_date.month, trade_date.day, 9, 25)
+        end_dt = datetime(trade_date.year, trade_date.month, trade_date.day, 15, 5)
+
+        frames: list[pl.DataFrame] = []
+        try:
+            raw = _from_pandas(ak.stock_zh_a_hist_min_em(
+                symbol=code,
+                period="1",
+                start_date=start_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                end_date=end_dt.strftime("%Y-%m-%d %H:%M:%S"),
+                adjust="",
+            ))
+            frames.append(raw)
+        except TypeError:
+            try:
+                raw = _from_pandas(ak.stock_zh_a_hist_min_em(
+                    symbol=code,
+                    period="1",
+                    adjust="",
+                ))
+                frames.append(raw)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("akshare stock minute fallback failed: symbol=%s error=%s", norm, e)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("akshare stock minute failed: symbol=%s date=%s error=%s", norm, trade_date, e)
+
+        if not frames or all(frame.is_empty() for frame in frames):
+            try:
+                raw = _from_pandas(ak.stock_zh_a_minute(
+                    symbol=self._ak_stock_with_prefix(norm),
+                    period="1",
+                    adjust="",
+                ))
+                frames.append(raw)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("akshare legacy minute failed: symbol=%s error=%s", norm, e)
+
+        for raw in frames:
+            df = self._normalize_minute(raw, norm, trade_date)
+            if not df.is_empty():
+                return df
+        return pl.DataFrame()
+
     def index_instruments(self) -> pl.DataFrame:
         rows = [
             {
@@ -153,6 +201,75 @@ class AkShareSource:
         )
         keep = [c for c in ["symbol", "date", "open", "high", "low", "close", "volume", "amount", "turnover_rate"] if c in df.columns]
         return filter_halt_days(df.select(keep).drop_nulls(subset=["symbol", "date"])).sort(["symbol", "date"])
+
+    @staticmethod
+    def _ak_stock_with_prefix(symbol: str) -> str:
+        norm = normalize_cn_symbol(symbol)
+        code, _, suffix = norm.partition(".")
+        prefix = "sh" if suffix == "SH" else "bj" if suffix == "BJ" else "sz"
+        return f"{prefix}{code}"
+
+    @staticmethod
+    def _normalize_minute(df: pl.DataFrame, symbol: str, trade_date: date) -> pl.DataFrame:
+        if df.is_empty():
+            return df
+        rename = {
+            "时间": "datetime",
+            "日期": "datetime",
+            "day": "datetime",
+            "trade_time": "datetime",
+            "开盘": "open",
+            "open": "open",
+            "收盘": "close",
+            "close": "close",
+            "最高": "high",
+            "high": "high",
+            "最低": "low",
+            "low": "low",
+            "成交量": "volume",
+            "volume": "volume",
+            "成交额": "amount",
+            "amount": "amount",
+        }
+        df = df.rename({k: v for k, v in rename.items() if k in df.columns})
+        if "datetime" not in df.columns:
+            return pl.DataFrame()
+
+        if df.schema["datetime"] == pl.Utf8:
+            df = df.with_columns(
+                pl.coalesce([
+                    pl.col("datetime").str.strptime(pl.Datetime("us"), "%Y-%m-%d %H:%M:%S", strict=False),
+                    pl.col("datetime").str.strptime(pl.Datetime("us"), "%Y-%m-%d %H:%M", strict=False),
+                    pl.col("datetime").str.strptime(pl.Datetime("us"), "%Y/%m/%d %H:%M:%S", strict=False),
+                    pl.col("datetime").str.strptime(pl.Datetime("us"), "%Y/%m/%d %H:%M", strict=False),
+                ]).alias("datetime")
+            )
+        else:
+            df = df.with_columns(pl.col("datetime").cast(pl.Datetime("us"), strict=False))
+
+        if "symbol" not in df.columns:
+            df = df.with_columns(pl.lit(symbol).alias("symbol"))
+        else:
+            df = df.with_columns(
+                pl.col("symbol").cast(pl.Utf8).map_elements(
+                    lambda value: normalize_cn_symbol(value or symbol),
+                    return_dtype=pl.Utf8,
+                )
+            )
+
+        for col in ("open", "high", "low", "close", "volume", "amount"):
+            if col in df.columns:
+                df = df.with_columns(pl.col(col).cast(pl.Float64, strict=False))
+
+        start_dt = datetime(trade_date.year, trade_date.month, trade_date.day, 9, 25)
+        end_dt = datetime(trade_date.year, trade_date.month, trade_date.day, 15, 5)
+        keep = [c for c in ["symbol", "datetime", "open", "high", "low", "close", "volume", "amount"] if c in df.columns]
+        return (
+            df.select(keep)
+            .drop_nulls(subset=["symbol", "datetime", "close"])
+            .filter((pl.col("datetime") >= start_dt) & (pl.col("datetime") <= end_dt))
+            .sort(["symbol", "datetime"])
+        )
 
     @staticmethod
     def _industry_map(ak) -> dict[str, str]:

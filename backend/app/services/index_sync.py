@@ -15,6 +15,74 @@ from app.tickflow.repository import KlineRepository
 
 logger = logging.getLogger(__name__)
 
+INDEX_NAME_FALLBACKS = {
+    "000001.SH": "上证指数",
+    "399001.SZ": "深证成指",
+    "399006.SZ": "创业板指",
+    "000680.SH": "科创综指",
+}
+
+
+def _fallback_index_instruments(symbols: list[str] | None = None) -> pl.DataFrame:
+    """Build a minimal index instruments table when CN_Index universe is unavailable."""
+    use_symbols = symbols or preferences.get_sidebar_index_symbols()
+    rows = [
+        {
+            "symbol": symbol,
+            "name": INDEX_NAME_FALLBACKS.get(symbol, symbol),
+            "code": symbol.split(".")[0],
+            "asset_type": "index",
+        }
+        for symbol in use_symbols
+        if symbol
+    ]
+    if not rows:
+        return pl.DataFrame()
+    return pl.DataFrame(rows).unique(subset=["symbol"], keep="last").sort("symbol")
+
+
+def _sync_akshare_index_daily(
+    repo: KlineRepository,
+    symbols: list[str],
+    start_time: datetime,
+    end_time: datetime,
+) -> int:
+    """Fetch core index daily bars from AkShare when TickFlow has no index rows."""
+    if not symbols:
+        return 0
+
+    try:
+        from app.datasource.akshare_source import AkShareSource
+    except Exception as e:  # noqa: BLE001
+        logger.warning("akshare index fallback unavailable: %s", e)
+        return 0
+
+    source = AkShareSource()
+    start = start_time.date()
+    end = end_time.date()
+    total_rows = 0
+    failures: list[str] = []
+
+    for symbol in symbols:
+        try:
+            raw = source.index_daily(symbol, start, end)
+            if raw.is_empty():
+                logger.info("akshare index fallback empty: symbol=%s range=%s..%s", symbol, start, end)
+                continue
+            repo.append_index_daily(raw)
+            enriched = compute_enriched(raw, factors=None, instruments=None)
+            repo.append_index_enriched(enriched)
+            total_rows += raw.height
+            del raw, enriched
+        except Exception as e:  # noqa: BLE001
+            failures.append(symbol)
+            logger.warning("akshare index fallback failed: symbol=%s range=%s..%s error=%s", symbol, start, end, e)
+
+    if total_rows:
+        repo.refresh_index_views()
+    logger.info("akshare index fallback synced: %d symbols, +%d rows, %d failures", len(symbols), total_rows, len(failures))
+    return total_rows
+
 
 def _quotes_to_index_instruments(resp) -> pl.DataFrame:
     """将 TickFlow quotes 响应规范为指数 instruments。"""
@@ -80,11 +148,18 @@ def sync_index_instruments(repo: KlineRepository) -> int:
 
     if resp is None or len(resp) == 0:
         logger.warning("CN_Index universe returned empty: %s", "; ".join(errors))
-        return 0
+        instruments = _fallback_index_instruments()
+        if instruments.is_empty():
+            return 0
+        repo.save_index_instruments(instruments)
+        repo.refresh_index_views()
+        return instruments.height
 
     instruments = _quotes_to_index_instruments(resp)
     if instruments.is_empty():
-        return 0
+        instruments = _fallback_index_instruments()
+        if instruments.is_empty():
+            return 0
     repo.save_index_instruments(instruments)
     repo.refresh_index_views()
     return instruments.height
@@ -104,7 +179,11 @@ def sync_and_persist_index_daily(
 
     instruments = repo.get_index_instruments()
     if instruments.is_empty():
-        sync_index_instruments(repo)
+        if symbols:
+            repo.save_index_instruments(_fallback_index_instruments(symbols))
+            repo.refresh_index_views()
+        else:
+            sync_index_instruments(repo)
         instruments = repo.get_index_instruments()
     if instruments.is_empty() or "symbol" not in instruments.columns:
         return 0
@@ -141,6 +220,7 @@ def sync_and_persist_index_daily(
             end_time=end_time,
         )
         if raw.is_empty():
+            total_rows += _sync_akshare_index_daily(repo, chunk, start_time, end_time)
             continue
 
         repo.append_index_daily(raw)
@@ -148,6 +228,12 @@ def sync_and_persist_index_daily(
         repo.append_index_enriched(enriched)
         total_rows += raw.height
         logger.info("index daily synced: %d/%d chunks, +%d rows", i + 1, len(chunks), raw.height)
+        if "symbol" in raw.columns:
+            returned_symbols = set(raw["symbol"].cast(pl.Utf8).unique().to_list())
+            missing_symbols = [symbol for symbol in chunk if symbol not in returned_symbols]
+            if missing_symbols:
+                logger.info("index daily missing %d symbols in TickFlow chunk, trying AkShare fallback", len(missing_symbols))
+                total_rows += _sync_akshare_index_daily(repo, missing_symbols, start_time, end_time)
         del raw, enriched
         gc.collect()
     repo.refresh_index_views()

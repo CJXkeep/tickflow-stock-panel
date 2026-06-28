@@ -905,7 +905,7 @@ export const api = {
       stock_info?: { name?: string; total_shares?: number; float_shares?: number }
       date: string | null
       rows: MinuteKlineRow[]
-      source?: 'local' | 'live' | 'none'
+      source?: 'local' | 'live' | 'akshare' | 'none'
     }>(
       `/api/kline/minute?symbol=${encodeURIComponent(symbol)}${date ? `&date=${date}` : ''}`,
     ),

@@ -1,11 +1,12 @@
 """enriched 表计算流水线(§7.5 / §7.7 Step 2)。
 
 存储层 (enriched parquet):
-  仅存储基础行情窄表 (14 列), 指标和信号由各服务即时计算。
+  存储基础行情窄表, 指标和信号由各服务即时计算。
 
   存储列: symbol, date, OHLCV(前复权), volume, amount,
-          raw_close, raw_high, raw_low, turnover_rate,
-          consecutive_limit_ups, consecutive_limit_downs
+           raw_close, raw_high, raw_low, turnover_rate,
+           prev_close, change_pct, change_amount, amplitude,
+           consecutive_limit_ups, consecutive_limit_downs
 
 设计:
   - 100% Polars 表达式(SQL 窗口无法表达递归 EMA)
@@ -52,13 +53,14 @@ def invalidate_custom_signals() -> None:
     _custom_signal_exprs = None
 
 
-# enriched parquet 仅存储的列 (14 列)
+# enriched parquet 仅存储基础行情列。技术指标和信号仍由服务层即时计算。
 ENRICHED_STORAGE_COLS = [
     "symbol", "date",
     "open", "high", "low", "close",          # 前复权
     "volume", "amount",
     "raw_close", "raw_high", "raw_low",       # 不复权原始价
     "turnover_rate",                           # 依赖当时的 float_shares, 不可回推
+    "prev_close", "change_pct", "change_amount", "amplitude",
     "consecutive_limit_ups",                   # 递推状态, 需从历史 cum_sum
     "consecutive_limit_downs",
 ]
@@ -761,7 +763,7 @@ def compute_enriched(
 
 
 def _select_storage_cols(df: pl.DataFrame) -> pl.DataFrame:
-    """写入 parquet 前裁剪到存储列 (14 列)。"""
+    """写入 parquet 前裁剪到基础行情存储列。"""
     cols = [c for c in ENRICHED_STORAGE_COLS if c in df.columns]
     return df.select(cols)
 
@@ -772,7 +774,7 @@ def run_pipeline(data_dir: Path | None = None,
                  on_batch_done: Callable[[int, int], None] | None = None) -> int:
     """运行盘后管道:读 kline_daily + adj_factor → 前复权 + 计算存储列 → 写 enriched。
 
-    enriched 表仅存储 14 列基础行情窄表 (OHLCV + raw_close/high/low + turnover_rate + 连板数)。
+    enriched 表仅存储基础行情窄表 (OHLCV + 涨跌幅/额 + turnover_rate + 连板数)。
 
     模式:
       - 全量 (symbols=None, new_dates_only=False):

@@ -155,7 +155,7 @@ class KlineRepository:
     def _refresh_enriched(self) -> None:
         """从 parquet 加载 enriched 最新日到内存 + 构建聚合表。
 
-        enriched parquet 仅存 14 列基础数据。启动时读入历史数据并即时计算完整指标，
+        enriched parquet 仅存基础行情数据。启动时读入历史数据并即时计算完整指标，
         将结果缓存在内存中供各服务使用。
 
         优化: 扩大历史读取范围, 同时缓存完整历史 (含指标), 供 filter_history 策略直接复用。
@@ -165,7 +165,7 @@ class KlineRepository:
             if not latest:
                 return
 
-            # Step 1: 直接读最新日期的分区文件 (仅 14 列)
+            # Step 1: 直接读最新日期的分区文件 (基础行情列)
             enriched_dir = self.store.data_dir / "kline_daily_enriched"
             ds = latest.isoformat() if hasattr(latest, "isoformat") else str(latest)
             target_parquet = enriched_dir / f"date={ds}" / "part.parquet"
@@ -177,7 +177,7 @@ class KlineRepository:
             if df_latest.is_empty():
                 return
 
-            # Step 2: 读近 300 天 14 列数据 → compute → filter(latest) → 缓存
+            # Step 2: 读近 300 天基础行情数据 → compute → filter(latest) → 缓存
             # 300 日历天 ≈ 210 交易日, 覆盖 filter_history 最大 lookback(90) + warmup(60)
             try:
                 from datetime import timedelta
@@ -229,7 +229,7 @@ class KlineRepository:
             except Exception as e:  # noqa: BLE001
                 logger.warning("enriched 即时计算失败, 使用原始 14 列缓存: %s", e)
 
-            # 降级: 直接使用 14 列数据 + 构建 live_agg
+            # 降级: 直接使用基础行情数据 + 构建 live_agg
             self._enriched_cache = df_latest
             self._enriched_cache_date = latest
             self._build_live_agg(self._live_agg_baseline_date(latest))
@@ -869,7 +869,7 @@ class KlineRepository:
         self._write_daily_partition(df, "kline_daily")
 
     def append_enriched(self, df: pl.DataFrame) -> None:
-        """按日分区写入 enriched 数据 (merge-upsert)。磁盘仅写入 14 列存储列。"""
+        """按日分区写入 enriched 数据 (merge-upsert)。磁盘仅写入基础行情存储列。"""
         if df.is_empty():
             return
         from app.indicators.pipeline import ENRICHED_STORAGE_COLS
@@ -950,7 +950,7 @@ class KlineRepository:
     def flush_live_enriched(self, df: pl.DataFrame) -> None:
         """覆写当天 kline_daily_enriched 分区 (实时 enriched 落盘, 非merge)。
 
-        内存缓存保留完整指标列供各服务使用，磁盘仅写入 14 列存储列。
+        内存缓存保留完整指标列供各服务使用，磁盘仅写入基础行情存储列。
         """
         if df.is_empty() or "date" not in df.columns:
             return
@@ -958,7 +958,7 @@ class KlineRepository:
         self._enriched_cache = df.sort(["symbol"])
         dt = df["date"][0]
         self._enriched_cache_date = dt
-        # 磁盘写入: 仅 14 列存储列
+        # 磁盘写入: 仅基础行情存储列
         from app.indicators.pipeline import ENRICHED_STORAGE_COLS
         storage_cols = [c for c in ENRICHED_STORAGE_COLS if c in df.columns]
         df_storage = df.select(storage_cols).sort(["symbol"])

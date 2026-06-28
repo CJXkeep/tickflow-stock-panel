@@ -1,7 +1,7 @@
 """Screener 服务(§6.3)。
 
 性能优化:
-  - enriched parquet 仅存 14 列基础数据, 指标和信号即时计算
+  - enriched parquet 仅存基础行情数据, 指标和信号即时计算
   - preset 策略: 从内存缓存或即时计算获取完整指标, ~10-50ms
   - custom SQL: DuckDB (用户传 SQL WHERE 字符串), ~10-50ms
 """
@@ -188,7 +188,7 @@ class ScreenerService:
     def _load_enriched_for_date(self, target_date: date) -> pl.DataFrame:
         """从 enriched parquet 读取指定日期的基础数据并即时计算完整指标+信号。
 
-        enriched parquet 仅存 14 列。读取后需要即时计算 ma/ema/macd/kdj/rsi/boll/momentum/signal 等列。
+        enriched parquet 仅存基础行情列。读取后需要即时计算 ma/ema/macd/kdj/rsi/boll/momentum/signal 等列。
         对于最新日, 优先使用内存缓存 (已包含完整指标)。
         """
         # 优先使用 repo 最新日缓存
@@ -217,7 +217,7 @@ class ScreenerService:
                         df = df.join(df_i.select(inst_cols), on="symbol", how="left")
                 return df
 
-        # 历史日期: 从 parquet 读取 14 列, 即时计算指标 (慢路径)
+        # 历史日期: 从 parquet 读取基础行情列, 即时计算指标 (慢路径)
         enriched_dir = self.repo.store.data_dir / "kline_daily_enriched"
         ds = target_date.isoformat()
         target_parquet = enriched_dir / f"date={ds}" / "part.parquet"
@@ -239,7 +239,7 @@ class ScreenerService:
         return df_full
 
     def _compute_enriched_full(self, df_target: pl.DataFrame, target_date: date) -> pl.DataFrame:
-        """从 14 列基础数据即时计算完整 enriched (含全部指标和信号)。
+        """从基础行情数据即时计算完整 enriched (含全部指标和信号)。
 
         读取历史数据作为指标计算的 warmup, 计算完成后只返回目标日期的行。
         """

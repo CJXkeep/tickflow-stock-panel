@@ -8,6 +8,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.config import settings
+from app.datasource.akshare_source import AkShareSource
 from app.indicators.pipeline import compute_enriched_single
 from app.services import kline_sync
 
@@ -87,6 +88,15 @@ def _get_stock_info(repo, symbol: str) -> dict:
         "total_shares": row[1],
         "float_shares": row[2],
     }
+
+
+def _fetch_akshare_minute_fallback(symbol: str, trade_date: date):
+    try:
+        return AkShareSource().stock_minute(symbol, trade_date)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("akshare minute fallback failed: symbol=%s date=%s error=%s", symbol, trade_date, e)
+        import polars as pl
+        return pl.DataFrame()
 
 
 @router.get("/daily")
@@ -341,16 +351,22 @@ def get_minute(
         trade_date = repo.latest_minute_date(symbol)
     if trade_date is None:
         if settings.provider_is_akshare:
+            df = _fetch_akshare_minute_fallback(symbol, date.today())
             return {
                 "symbol": symbol, "name": stock_name, "stock_info": stock_info,
-                "date": str(date.today()), "rows": [], "source": "none",
+                "date": str(date.today()), "rows": df.to_dicts(),
+                "source": "akshare" if not df.is_empty() else "none",
             }
         # 本地无任何分钟K，尝试从 TickFlow 拉取当天
         trade_date = date.today()
         df = kline_sync.fetch_minute_single(symbol, trade_date)
+        source = "live" if not df.is_empty() else "none"
+        if df.is_empty():
+            df = _fetch_akshare_minute_fallback(symbol, trade_date)
+            source = "akshare" if not df.is_empty() else "none"
         return {
             "symbol": symbol, "name": stock_name, "stock_info": stock_info,
-            "date": str(trade_date), "rows": df.to_dicts(), "source": "live",
+            "date": str(trade_date), "rows": df.to_dicts(), "source": source,
         }
 
     df = repo.get_minute(symbol, trade_date)
@@ -382,17 +398,23 @@ def get_minute(
         }
 
     if settings.provider_is_akshare:
+        fallback_df = _fetch_akshare_minute_fallback(symbol, trade_date)
         return {
             "symbol": symbol, "name": stock_name, "stock_info": stock_info,
-            "date": str(trade_date), "rows": [], "source": "none",
+            "date": str(trade_date), "rows": fallback_df.to_dicts(),
+            "source": "akshare" if not fallback_df.is_empty() else "none",
         }
 
     # 本地不完整或无数据 → 从 TickFlow 实时拉取
     live_df = kline_sync.fetch_minute_single(symbol, trade_date)
+    source = "live" if not live_df.is_empty() else "none"
+    if live_df.is_empty():
+        live_df = _fetch_akshare_minute_fallback(symbol, trade_date)
+        source = "akshare" if not live_df.is_empty() else "none"
     return {
         "symbol": symbol, "name": stock_name, "stock_info": stock_info,
         "date": str(trade_date), "rows": live_df.to_dicts(),
-        "source": "live" if not live_df.is_empty() else "none",
+        "source": source,
     }
 
 

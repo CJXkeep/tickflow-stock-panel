@@ -55,7 +55,7 @@ export function StockIntradayChart({
 
   return (
     <div className={className} style={{ height, flexShrink: 0 }}>
-      {minute.isLoading && <div className="text-xs text-muted py-2">分时加载中…</div>}
+      {(minute.isLoading || minute.isFetching) && <div className="text-xs text-muted py-2">分时加载中…</div>}
       {!minute.isLoading && minuteRows.length === 0 && (
         <>
           {fetchMinute.isPending ? (
@@ -68,7 +68,7 @@ export function StockIntradayChart({
             <div className="flex flex-col items-center justify-center h-full gap-3">
               <div className="text-xs text-muted">该日暂无分钟数据（数据源未提供）</div>
               <button
-                onClick={() => fetchMinute.mutate()}
+                onClick={() => minute.refetch()}
                 className="px-4 py-1.5 rounded-btn bg-elevated text-secondary text-xs font-medium hover:bg-elevated/80 transition-colors duration-150"
               >
                 重新获取

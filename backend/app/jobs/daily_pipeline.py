@@ -36,6 +36,8 @@ _SCHEDULER_JOB_IDS = (
     "depth_finalize",
 )
 UniverseScope = Literal["focus", "market"]
+FOCUS_HISTORY_BACKFILL_DAYS = 365
+FOCUS_HISTORY_MIN_ROWS = 60
 
 
 def _noop(stage: str, pct: int, msg: str, **kwargs) -> None:  # noqa: ARG001
@@ -80,6 +82,32 @@ def _resolve_universe(capset: CapabilitySet, scope: UniverseScope = "focus") -> 
     if scope == "market":
         return _resolve_market_universe(capset)
     return focus_universe.resolve_focus_universe(settings.data_dir)
+
+
+def _symbols_needing_focus_history(repo: KlineRepository, symbols: list[str]) -> list[str]:
+    """Return focus symbols whose local daily history is too short for pct/indicators."""
+    if not symbols:
+        return []
+    data_glob = str(repo.store.data_dir / "kline_daily" / "**" / "*.parquet")
+    symbol_set = set(symbols)
+    try:
+        stats = (
+            pl.scan_parquet(data_glob)
+            .filter(pl.col("symbol").is_in(symbols))
+            .group_by("symbol")
+            .agg(pl.len().alias("rows"))
+            .collect()
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.debug("focus history coverage scan skipped: %s", e)
+        return symbols
+
+    counts = {
+        str(row["symbol"]): int(row["rows"] or 0)
+        for row in stats.to_dicts()
+        if row.get("symbol")
+    }
+    return sorted(sym for sym in symbol_set if counts.get(sym, 0) < FOCUS_HISTORY_MIN_ROWS)
 
 
 def run_instruments_sync(repo: KlineRepository) -> dict:
@@ -184,6 +212,43 @@ def run_now(
         new_daily_days = 365
         emit("sync_daily", 45, "日K 完成")
         logger.info("sync_daily: [%s ~ %s] done", start_date, today)
+
+    if scope == "focus" and capset.has(Cap.KLINE_DAILY_BATCH):
+        need_history = _symbols_needing_focus_history(repo, universe)
+        if need_history:
+            start_date = today - _td(days=FOCUS_HISTORY_BACKFILL_DAYS)
+            emit(
+                "sync_daily_history",
+                46,
+                f"补齐关注范围历史 ({len(need_history)} 只)…",
+            )
+            logger.info(
+                "sync_daily_history: [%s ~ %s], %d focus symbols need backfill",
+                start_date, today, len(need_history),
+            )
+
+            def _history_chunk_progress(cur: int, tot: int) -> None:
+                emit(
+                    "sync_daily_history",
+                    46 + int(3 * cur / tot),
+                    f"历史日K批次 {cur}/{tot}",
+                    stage_pct=int(100 * cur / tot),
+                    skip_log=True,
+                )
+
+            written_history = kline_sync.sync_and_persist_daily_batch(
+                need_history,
+                repo,
+                capset,
+                start_date=_dt.combine(start_date, _dt.min.time()),
+                end_date=_dt.combine(today, _dt.min.time()),
+                on_chunk_done=_history_chunk_progress,
+            )
+            if written_history > 0:
+                written_daily += written_history
+                new_daily_days = max(new_daily_days, FOCUS_HISTORY_BACKFILL_DAYS)
+            emit("sync_daily_history", 49, f"历史日K补齐完成,{written_history} 行")
+            logger.info("sync_daily_history: wrote %d rows", written_history)
     _invalidate("daily")
 
     # Step 1.5: 增量同步除权因子 — 从已有数据最新日期的下一天开始获取
