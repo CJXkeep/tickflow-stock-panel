@@ -50,6 +50,11 @@ function pctClass(v: number | null | undefined) {
   return x > 0 ? 'text-bull' : 'text-bear'
 }
 
+type StockPreviewTarget = {
+  symbol: string
+  name?: string | null
+}
+
 function quoteAge(ms?: number | null) {
   if (ms == null) return '—'
   if (ms < 1000) return `${Math.round(ms)}ms`
@@ -382,7 +387,17 @@ function MiniMetric({ label, value, cls = 'text-foreground' }: { label: string; 
   )
 }
 
-function StockList({ title, rows, mode }: { title: string; rows: MarketSnapshotRow[]; mode: 'gain' | 'loss' | 'amount' | 'active' }) {
+function StockList({
+  title,
+  rows,
+  mode,
+  onStockClick,
+}: {
+  title: string
+  rows: MarketSnapshotRow[]
+  mode: 'gain' | 'loss' | 'amount' | 'active'
+  onStockClick: (stock: StockPreviewTarget) => void
+}) {
   return (
     <div className="rounded-card border border-border bg-surface/80 p-2.5">
       <div className="mb-1.5 flex items-center justify-between">
@@ -391,7 +406,13 @@ function StockList({ title, rows, mode }: { title: string; rows: MarketSnapshotR
       </div>
       <div className="space-y-1">
         {rows.slice(0, 8).map((r, idx) => (
-          <div key={`${r.symbol}-${idx}`} className="grid grid-cols-[18px_1fr_auto] items-center gap-1.5 rounded bg-elevated/40 px-1.5 py-1">
+          <button
+            key={`${r.symbol}-${idx}`}
+            type="button"
+            onClick={() => onStockClick({ symbol: r.symbol, name: r.name })}
+            className="grid w-full grid-cols-[18px_1fr_auto] items-center gap-1.5 rounded bg-elevated/40 px-1.5 py-1 text-left transition-colors hover:bg-elevated hover:ring-1 hover:ring-accent/25 focus:outline-none focus:ring-1 focus:ring-accent/50"
+            aria-label={`${r.name || r.symbol} 个股详情`}
+          >
             <span className="text-center font-mono text-[10px] text-muted">{idx + 1}</span>
             <div className="min-w-0">
               <div className="truncate text-[11px] text-foreground">{r.name || r.symbol}</div>
@@ -416,7 +437,7 @@ function StockList({ title, rows, mode }: { title: string; rows: MarketSnapshotR
                 </>
               )}
             </div>
-          </div>
+          </button>
         ))}
         {rows.length === 0 && <div className="py-5 text-center text-xs text-muted">暂无数据</div>}
       </div>
@@ -424,7 +445,17 @@ function StockList({ title, rows, mode }: { title: string; rows: MarketSnapshotR
   )
 }
 
-function RankColumn({ title, rows, tone }: { title: string; rows: OverviewDimensionRankItem[]; tone: 'bull' | 'bear' }) {
+function RankColumn({
+  title,
+  rows,
+  tone,
+  onStockClick,
+}: {
+  title: string
+  rows: OverviewDimensionRankItem[]
+  tone: 'bull' | 'bear'
+  onStockClick: (stock: StockPreviewTarget) => void
+}) {
   return (
     <div className="min-w-0 space-y-1">
       <div className={`text-[10px] font-medium ${tone === 'bull' ? 'text-bull' : 'text-bear'}`}>{title}</div>
@@ -433,7 +464,22 @@ function RankColumn({ title, rows, tone }: { title: string; rows: OverviewDimens
           <span className="text-center font-mono text-[9px] text-muted">{idx + 1}</span>
           <div className="min-w-0">
             <div className="truncate text-[11px] text-foreground" title={r.name}>{r.name}</div>
-            <div className="truncate text-[9px] text-muted">{r.count}只 · {r.leader?.name ?? '—'}</div>
+            <div className="flex min-w-0 items-center gap-1 text-[9px] text-muted">
+              <span className="shrink-0">{r.count}只</span>
+              <span className="shrink-0">·</span>
+              {r.leader?.symbol ? (
+                <button
+                  type="button"
+                  onClick={() => onStockClick({ symbol: String(r.leader?.symbol), name: r.leader?.name })}
+                  className="min-w-0 truncate text-left text-muted transition-colors hover:text-accent focus:outline-none focus:text-accent"
+                  aria-label={`${r.leader.name || r.leader.symbol} 个股详情`}
+                >
+                  {r.leader.name ?? r.leader.symbol}
+                </button>
+              ) : (
+                <span className="truncate">—</span>
+              )}
+            </div>
           </div>
           <div className={`font-mono text-[10px] font-semibold ${pctClass(r.avg_pct)}`}>{fmtStockPct(r.avg_pct)}</div>
         </div>
@@ -443,15 +489,25 @@ function RankColumn({ title, rows, tone }: { title: string; rows: OverviewDimens
   )
 }
 
-function HotRankCard({ title, rank, configUrl }: { title: string; rank?: OverviewMarket['concept_rank']; configUrl: string }) {
+function HotRankCard({
+  title,
+  rank,
+  configUrl,
+  onStockClick,
+}: {
+  title: string
+  rank?: OverviewMarket['concept_rank']
+  configUrl: string
+  onStockClick: (stock: StockPreviewTarget) => void
+}) {
   const hasData = (rank?.leading?.length ?? 0) > 0 || (rank?.lagging?.length ?? 0) > 0
   return (
     <section className="rounded-card border border-border bg-surface/80 p-2.5">
       <SectionTitle icon={Flame} title={title} hint="领涨/领跌" />
       {hasData ? (
         <div className="grid grid-cols-2 gap-2">
-          <RankColumn title="领涨" rows={rank?.leading ?? []} tone="bull" />
-          <RankColumn title="领跌" rows={rank?.lagging ?? []} tone="bear" />
+          <RankColumn title="领涨" rows={rank?.leading ?? []} tone="bull" onStockClick={onStockClick} />
+          <RankColumn title="领跌" rows={rank?.lagging ?? []} tone="bear" onStockClick={onStockClick} />
         </div>
       ) : (
         <div className="py-4 text-center">
@@ -471,6 +527,7 @@ function HotRankCard({ title, rank, configUrl }: { title: string; rank?: Overvie
 export function Dashboard() {
   const [selectedDate, setSelectedDate] = useState<string | undefined>()
   const [manualFetching, setManualFetching] = useState(false)
+  const [previewStock, setPreviewStock] = useState<StockPreviewTarget | null>(null)
   const dataStatus = useDataStatus({ staleTime: 60_000 })
   const overview = useQuery({
     queryKey: QK.overviewMarket(selectedDate),
@@ -497,6 +554,7 @@ export function Dashboard() {
     setManualFetching(true)
     overview.refetch().finally(() => setManualFetching(false))
   }
+  const openStockPreview = (stock: StockPreviewTarget) => setPreviewStock(stock)
 
   if (overview.isLoading && !data) {
     return (
@@ -669,15 +727,15 @@ export function Dashboard() {
           </div>
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-            <HotRankCard title="概念热度" rank={data.concept_rank} configUrl="/concept-analysis" />
-            <HotRankCard title="行业热度" rank={data.industry_rank} configUrl="/industry-analysis" />
+            <HotRankCard title="概念热度" rank={data.concept_rank} configUrl="/concept-analysis" onStockClick={openStockPreview} />
+            <HotRankCard title="行业热度" rank={data.industry_rank} configUrl="/industry-analysis" onStockClick={openStockPreview} />
           </div>
 
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-            <StockList title="涨幅榜" rows={data.top_gainers} mode="gain" />
-            <StockList title="跌幅榜" rows={data.top_losers} mode="loss" />
-            <StockList title="成交额榜" rows={data.turnover_leaders} mode="amount" />
-            <StockList title="活跃换手" rows={data.active_leaders} mode="active" />
+            <StockList title="涨幅榜" rows={data.top_gainers} mode="gain" onStockClick={openStockPreview} />
+            <StockList title="跌幅榜" rows={data.top_losers} mode="loss" onStockClick={openStockPreview} />
+            <StockList title="成交额榜" rows={data.turnover_leaders} mode="amount" onStockClick={openStockPreview} />
+            <StockList title="活跃换手" rows={data.active_leaders} mode="active" onStockClick={openStockPreview} />
           </div>
         </main>
 
@@ -701,6 +759,11 @@ export function Dashboard() {
           </section>
         </aside>
       </div>
+      <StockPreviewDialog
+        symbol={previewStock?.symbol ?? null}
+        name={previewStock?.name ?? undefined}
+        onClose={() => setPreviewStock(null)}
+      />
     </div>
   )
 }
