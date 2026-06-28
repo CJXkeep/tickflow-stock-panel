@@ -24,6 +24,7 @@ export const QK = {
   watchlist:            ['watchlist'] as const,
   watchlistQuotes:      ['watchlist-quotes'] as const,
   watchlistEnriched:    (ext?: string) => ['watchlist-enriched', ext] as const,
+  watchlistGroupPreview: ['watchlist-group-preview'] as const,
   watchlistKlineBatch:  (symbols: string) => ['watchlist-kline-batch', symbols] as const,
   instrumentSearch:     (q: string) => ['instrument-search', q] as const,
 

@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useRef, useEffect, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Trash2, RefreshCw, Star, X, Search, LayoutGrid, List, Settings2, Plus, Check, Filter, Eye, EyeOff, Minus } from 'lucide-react'
+import { Trash2, RefreshCw, Star, X, Search, LayoutGrid, List, Settings2, Plus, Check, Filter, Eye, EyeOff, Minus, Tags } from 'lucide-react'
 import { api, type KlineRow } from '@/lib/api'
 import { QK } from '@/lib/queryKeys'
 import { storage } from '@/lib/storage'
@@ -38,6 +38,24 @@ function getBoardType(symbol: string): BoardType | null {
   if (/^60[0135]/.test(symbol))  return '沪主板'
   if (/^00[012]/.test(symbol))   return '深主板'
   return null
+}
+
+function groupSourceLabel(source?: string) {
+  if (source === 'concept') return '概念'
+  if (source === 'industry') return '行业'
+  if (source === 'exchange') return '市场'
+  if (source === 'source') return '来源'
+  return '分组'
+}
+
+function customGroupSummary(groups: { name: string }[]) {
+  if (groups.length > 1) return `${groups[0].name}+${groups.length - 1}`
+  return groups[0]?.name
+}
+
+function customGroupTitle(symbol: string, groups: { name: string }[], hasCustomGroups: boolean) {
+  if (groups.length) return `${symbol}：${groups.map(group => group.name).join('、')}`
+  return hasCustomGroups ? `设置 ${symbol} 的自定义分组` : '先创建自定义分组'
 }
 
 // ===== 换手率分档色（卡片/表格用） =====
@@ -306,6 +324,10 @@ function StockCard({
   onCancelRemove,
   onRequestRemove,
   confirmRemove,
+  groupSummary,
+  groupTitle,
+  hasGroups,
+  onOpenGroups,
   extCols,
   expandedCells,
   onToggleExpand,
@@ -318,6 +340,10 @@ function StockCard({
   onCancelRemove: () => void
   onRequestRemove: (symbol: string) => void
   confirmRemove: string | null
+  groupSummary?: string
+  groupTitle: string
+  hasGroups: boolean
+  onOpenGroups: (symbol: string, name?: string | null) => void
   extCols: ColumnConfig[]
   expandedCells: Set<string>
   onToggleExpand: (key: string) => void
@@ -349,7 +375,7 @@ function StockCard({
       {/* 左侧彩色指示条 */}
       <div className={`absolute left-0 top-0 bottom-0 w-[3px] rounded-l-lg ${barColor}`} />
 
-      {/* 删除按钮 / 确认区 */}
+      {/* 卡片操作区 */}
       <div className="absolute top-1.5 right-1.5 z-10">
         {confirmRemove === r.symbol ? (
           <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
@@ -364,13 +390,28 @@ function StockCard({
             </button>
           </div>
         ) : (
-          <button
-            onClick={e => { e.stopPropagation(); onRequestRemove(r.symbol) }}
-            className="opacity-0 group-hover:opacity-100 text-muted hover:text-danger transition-all duration-150 p-0.5 rounded hover:bg-elevated"
-            aria-label="移除"
-          >
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+            <button
+              type="button"
+              onClick={() => onOpenGroups(r.symbol, name)}
+              className={`inline-flex h-6 max-w-[88px] items-center gap-1 rounded-btn border px-1.5 text-[10px] transition-all duration-150 ${
+                hasGroups
+                  ? 'border-accent/35 bg-accent/10 text-accent'
+                  : 'border-border bg-base/80 text-muted opacity-0 hover:border-accent/35 hover:text-foreground group-hover:opacity-100'
+              }`}
+              title={groupTitle}
+            >
+              <Tags className="h-3 w-3 shrink-0" />
+              {groupSummary && <span className="truncate">{groupSummary}</span>}
+            </button>
+            <button
+              onClick={() => onRequestRemove(r.symbol)}
+              className="rounded p-0.5 text-muted opacity-0 transition-all duration-150 hover:bg-elevated hover:text-danger group-hover:opacity-100"
+              aria-label="移除"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
         )}
       </div>
 
@@ -475,6 +516,13 @@ export function Watchlist() {
   // 列配置 — 从后端/localStorage 异步加载
   const [columns, setColumns] = useState<ColumnConfig[]>([...BUILTIN_COLUMNS])
   const [customizerOpen, setCustomizerOpen] = useState(false)
+  const [groupPanelOpen, setGroupPanelOpen] = useState(false)
+  const [activeGroupId, setActiveGroupId] = useState<string | null>(null)
+  const [groupName, setGroupName] = useState('')
+  const [groupSymbol, setGroupSymbol] = useState('')
+  const [groupPicker, setGroupPicker] = useState<{ symbol: string; name?: string | null } | null>(null)
+  const [groupPickerQuery, setGroupPickerQuery] = useState('')
+  const [confirmDeleteGroupId, setConfirmDeleteGroupId] = useState<string | null>(null)
   const columnsLoaded = useRef(false)
 
   useEffect(() => {
@@ -546,6 +594,17 @@ export function Watchlist() {
     queryFn: api.watchlistList,
   })
 
+  const allSymbols = useMemo(
+    () => list.data?.symbols?.map(s => s.symbol) ?? [],
+    [list.data?.symbols],
+  )
+
+  const groupPreview = useQuery({
+    queryKey: QK.watchlistGroupPreview,
+    queryFn: api.watchlistGroupPreview,
+  })
+  const groupMemberships = groupPreview.data?.memberships ?? {}
+
   // enriched 数据 — 传入 ext_columns 参数
   const enriched = useQuery({
     queryKey: QK.watchlistEnriched(extColumnsParam),
@@ -573,6 +632,8 @@ export function Watchlist() {
       qc.invalidateQueries({ queryKey: QK.watchlist })
       qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
       qc.invalidateQueries({ queryKey: ['watchlist-kline-batch'] })
+      qc.invalidateQueries({ queryKey: QK.watchlistGroupPreview })
+      qc.invalidateQueries({ queryKey: QK.focusUniverse })
     },
   })
 
@@ -588,6 +649,8 @@ export function Watchlist() {
       qc.invalidateQueries({ queryKey: QK.watchlist })
       qc.invalidateQueries({ queryKey: QK.watchlistEnriched() })
       qc.invalidateQueries({ queryKey: QK.watchlistKlineBatch('') })
+      qc.invalidateQueries({ queryKey: QK.watchlistGroupPreview })
+      qc.invalidateQueries({ queryKey: QK.focusUniverse })
     },
   })
 
@@ -600,16 +663,154 @@ export function Watchlist() {
       qc.invalidateQueries({ queryKey: QK.watchlist })
       qc.invalidateQueries({ queryKey: QK.watchlistEnriched() })
       qc.invalidateQueries({ queryKey: QK.watchlistKlineBatch('') })
+      qc.invalidateQueries({ queryKey: QK.watchlistGroupPreview })
+      qc.invalidateQueries({ queryKey: QK.focusUniverse })
     },
+  })
+
+  const refreshGroups = useCallback(() => {
+    qc.invalidateQueries({ queryKey: QK.watchlistGroupPreview })
+    qc.invalidateQueries({ queryKey: QK.focusUniverse })
+  }, [qc])
+
+  const createGroup = useMutation({
+    mutationFn: () => api.createWatchlistGroup({ name: groupName.trim() }),
+    onSuccess: () => {
+      setGroupName('')
+      refreshGroups()
+    },
+  })
+
+  const createGroupFromPicker = useMutation({
+    mutationFn: (name: string) => api.createWatchlistGroup({ name: name.trim() }),
+    onSuccess: () => {
+      refreshGroups()
+    },
+  })
+
+  const deleteGroup = useMutation({
+    mutationFn: (groupId: string) => api.deleteWatchlistGroup(groupId),
+    onSuccess: () => {
+      setConfirmDeleteGroupId(null)
+      refreshGroups()
+    },
+  })
+
+  const setSymbolGroups = useMutation({
+    mutationFn: ({ symbol, groupIds }: { symbol: string; groupIds: string[] }) =>
+      api.setWatchlistSymbolGroups(symbol, groupIds),
+    onSuccess: refreshGroups,
   })
 
   // 二次确认状态
   const [confirmClear, setConfirmClear] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
 
-  const allSymbols = list.data?.symbols?.map(s => s.symbol) ?? []
   const rows = enriched.data?.rows ?? []
   const missingCount = enriched.data?.missing_symbols?.length ?? rows.filter((r: any) => r._missing_enriched).length
+
+  useEffect(() => {
+    if (!allSymbols.length) {
+      if (groupSymbol) setGroupSymbol('')
+      return
+    }
+    if (!groupSymbol || !allSymbols.includes(groupSymbol)) {
+      setGroupSymbol(allSymbols[0])
+    }
+  }, [allSymbols, groupSymbol])
+
+  const customGroups = groupPreview.data?.custom ?? []
+  const autoGroups = groupPreview.data?.auto ?? []
+  const filteredPickerGroups = useMemo(() => {
+    const keyword = groupPickerQuery.trim().toLowerCase()
+    if (!keyword) return customGroups
+    return customGroups.filter(group => (
+      group.name.toLowerCase().includes(keyword) ||
+      group.id.toLowerCase().includes(keyword)
+    ))
+  }, [customGroups, groupPickerQuery])
+  const pickerGroupIds = groupPicker ? (groupMemberships[groupPicker.symbol] ?? []) : []
+  const customGroupIdSet = useMemo(() => new Set(customGroups.map(group => group.id)), [customGroups])
+  const pickerCustomGroupIds = useMemo(
+    () => pickerGroupIds.filter((id: string) => customGroupIdSet.has(id)),
+    [customGroupIdSet, pickerGroupIds],
+  )
+  const pickerCustomGroupSet = useMemo(() => new Set(pickerCustomGroupIds), [pickerCustomGroupIds])
+  const pickerCustomGroups = useMemo(
+    () => customGroups.filter(group => pickerCustomGroupSet.has(group.id)),
+    [customGroups, pickerCustomGroupSet],
+  )
+  const canCreatePickerGroup = !!groupPickerQuery.trim() && !customGroups.some(
+    group => group.name.trim().toLowerCase() === groupPickerQuery.trim().toLowerCase(),
+  )
+  const conceptGroups = useMemo(
+    () => autoGroups.filter(group => group.source === 'concept').sort((a, b) => b.count - a.count),
+    [autoGroups],
+  )
+  const otherAutoGroups = useMemo(
+    () => autoGroups.filter(group => group.source !== 'concept').sort((a, b) => b.count - a.count),
+    [autoGroups],
+  )
+  const groupFilterOptions = useMemo(
+    () => [...customGroups, ...autoGroups],
+    [customGroups, autoGroups],
+  )
+  const activeGroup = useMemo(
+    () => groupFilterOptions.find(group => group.id === activeGroupId) ?? null,
+    [groupFilterOptions, activeGroupId],
+  )
+  const quickCustomGroups = useMemo(() => {
+    const pinned = activeGroup?.kind === 'custom' ? [activeGroup] : []
+    const custom = customGroups.filter(group => group.id !== activeGroupId)
+    return [...pinned, ...custom].slice(0, 10)
+  }, [activeGroup, activeGroupId, customGroups])
+  const quickConceptGroups = useMemo(() => {
+    const pinned = activeGroup?.source === 'concept' ? [activeGroup] : []
+    const concepts = conceptGroups.filter(group => group.id !== activeGroupId)
+    return [...pinned, ...concepts].slice(0, 18)
+  }, [activeGroup, activeGroupId, conceptGroups])
+  const activeGroupSymbols = useMemo(
+    () => new Set(activeGroup?.symbols ?? []),
+    [activeGroup],
+  )
+  const selectedGroupIds = groupSymbol ? (groupMemberships[groupSymbol] ?? []) : []
+  const selectedGroupSet = useMemo(() => new Set(selectedGroupIds), [selectedGroupIds])
+  const toggleSymbolGroup = useCallback((groupId: string) => {
+    if (!groupSymbol) return
+    const next = selectedGroupSet.has(groupId)
+      ? selectedGroupIds.filter(id => id !== groupId)
+      : [...selectedGroupIds, groupId]
+    setSymbolGroups.mutate({ symbol: groupSymbol, groupIds: next })
+  }, [groupSymbol, selectedGroupIds, selectedGroupSet, setSymbolGroups])
+
+  const setSymbolCustomGroups = useCallback((symbol: string, groupIds: string[]) => {
+    if (!symbol) return
+    setSymbolGroups.mutate({ symbol, groupIds })
+  }, [setSymbolGroups])
+
+  const togglePickerGroup = useCallback((groupId: string) => {
+    if (!groupPicker) return
+    const next = pickerCustomGroupSet.has(groupId)
+      ? pickerCustomGroupIds.filter(id => id !== groupId)
+      : [...pickerCustomGroupIds, groupId]
+    setSymbolCustomGroups(groupPicker.symbol, next)
+  }, [groupPicker, pickerCustomGroupIds, pickerCustomGroupSet, setSymbolCustomGroups])
+
+  const openGroupPicker = useCallback((symbol: string, name?: string | null) => {
+    setGroupPicker({ symbol, name })
+    setGroupPickerQuery('')
+  }, [])
+
+  const closeGroupPicker = useCallback(() => {
+    setGroupPicker(null)
+    setGroupPickerQuery('')
+  }, [])
+
+  useEffect(() => {
+    if (activeGroupId && !groupFilterOptions.some(group => group.id === activeGroupId)) {
+      setActiveGroupId(null)
+    }
+  }, [activeGroupId, groupFilterOptions])
 
   // ===== 筛选 =====
   const [filterOpen, setFilterOpen] = useState(false)
@@ -674,6 +875,9 @@ export function Watchlist() {
   const filteredRows = useMemo(() => {
     // 板块筛选（全选时跳过）
     let result = rows
+    if (activeGroup) {
+      result = result.filter(r => activeGroupSymbols.has(r.symbol))
+    }
     if (boardFilter.size > 0 && boardFilter.size < BOARDS.length) {
       result = result.filter(r => {
         const board = getBoardType(r.symbol)
@@ -700,7 +904,7 @@ export function Watchlist() {
       })
     }
     return result
-  }, [rows, filters, columns, boardFilter])
+  }, [rows, filters, columns, boardFilter, activeGroup, activeGroupSymbols])
 
   const activeFilterCount = Object.values(filters).filter(v => v.min || v.max || v.text).length
 
@@ -722,7 +926,7 @@ export function Watchlist() {
     <div className="flex flex-col h-full">
       <PageHeader
         title="观察池"
-        subtitle={`${sortedRows.length}/${allSymbols.length} 只${missingCount ? ` · 待同步 ${missingCount}` : ''}`}
+        subtitle={`${sortedRows.length}/${allSymbols.length} 只${activeGroup ? ` · ${activeGroup.name}` : ''}${missingCount ? ` · 待同步 ${missingCount}` : ''}`}
         right={
           <div className="flex items-center gap-2">
             {/* 筛选 / 搜索 */}
@@ -736,6 +940,17 @@ export function Watchlist() {
               title={`筛选${activeFilterCount > 0 ? ` (${activeFilterCount})` : ''}`}
             >
               <Filter className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setGroupPanelOpen(v => !v)}
+              className={`inline-flex items-center justify-center h-8 w-8 rounded-btn transition-colors duration-150 ease-smooth ${
+                groupPanelOpen || activeGroup
+                  ? 'bg-accent/15 text-accent hover:bg-accent/25'
+                  : 'bg-elevated text-secondary hover:bg-elevated/80'
+              }`}
+              title={activeGroup ? `当前分组：${activeGroup.name}` : '观察池分组'}
+            >
+              <Tags className="h-4 w-4" />
             </button>
             <StockSearchBox
               onPreview={(sym, name) => { setPreviewSymbol(sym); setPreviewName(name) }}
@@ -783,6 +998,116 @@ export function Watchlist() {
           </div>
         }
       />
+
+      <div className="border-b border-border bg-base/95 px-5 py-2">
+        <div className="flex min-w-0 items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveGroupId(null)}
+            className={`h-7 shrink-0 rounded-btn border px-3 text-xs transition-colors ${
+              !activeGroup
+                ? 'border-accent/45 bg-accent/15 text-accent'
+                : 'border-border bg-surface text-secondary hover:border-accent/35 hover:text-foreground'
+            }`}
+          >
+            全部
+            <span className="ml-1 font-mono text-[10px] opacity-70">{allSymbols.length}</span>
+          </button>
+          <span className="shrink-0 text-[10px] font-medium text-muted">自定义</span>
+          <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto pr-1">
+            {quickCustomGroups.length > 0 ? quickCustomGroups.map(group => (
+              <button
+                key={group.id}
+                type="button"
+                onClick={() => setActiveGroupId(group.id)}
+                className={`inline-flex h-7 max-w-[180px] shrink-0 items-center gap-1 rounded-btn border px-2.5 text-xs transition-colors ${
+                  activeGroupId === group.id
+                    ? 'border-accent/45 bg-accent/15 text-accent'
+                    : 'border-border bg-surface text-secondary hover:border-accent/35 hover:text-foreground'
+                }`}
+                title={`${group.name} · ${group.count} 只`}
+              >
+                <span className="truncate">{group.name}</span>
+                <span className="font-mono text-[10px] opacity-70">{group.count}</span>
+              </button>
+            )) : (
+              <span className="inline-flex h-7 items-center text-xs text-muted">暂无自定义分组</span>
+            )}
+          </div>
+          <select
+            value={activeGroupId ?? ''}
+            onChange={e => setActiveGroupId(e.target.value || null)}
+            className="h-7 w-36 shrink-0 rounded-btn border border-border bg-surface px-2 text-xs text-foreground outline-none focus:border-accent"
+            title="选择全部维度"
+          >
+            <option value="">全部维度</option>
+            {customGroups.length > 0 && (
+              <optgroup label="自定义分组">
+                {customGroups.map(group => (
+                  <option key={group.id} value={group.id}>{group.name} · {group.count}</option>
+                ))}
+              </optgroup>
+            )}
+            {conceptGroups.length > 0 && (
+              <optgroup label="概念标签">
+                {conceptGroups.map(group => (
+                  <option key={group.id} value={group.id}>{group.name} · {group.count}</option>
+                ))}
+              </optgroup>
+            )}
+            {otherAutoGroups.length > 0 && (
+              <optgroup label="行业/市场">
+                {otherAutoGroups.map(group => (
+                  <option key={group.id} value={group.id}>{group.name} · {group.count}</option>
+                ))}
+              </optgroup>
+            )}
+          </select>
+          <button
+            type="button"
+            onClick={() => setGroupPanelOpen(v => !v)}
+            className={`inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-btn transition-colors ${
+              groupPanelOpen
+                ? 'bg-accent/15 text-accent hover:bg-accent/25'
+                : 'bg-elevated text-secondary hover:bg-elevated/80 hover:text-foreground'
+            }`}
+            title="管理分组"
+          >
+            <Settings2 className="h-3.5 w-3.5" />
+          </button>
+        </div>
+        {conceptGroups.length > 0 && (
+          <div className="mt-2 flex min-w-0 items-center gap-2">
+            <span className="shrink-0 text-[10px] font-medium text-muted">概念</span>
+            <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto pr-1">
+              {quickConceptGroups.map(group => (
+                <button
+                  key={group.id}
+                  type="button"
+                  onClick={() => setActiveGroupId(group.id)}
+                  className={`inline-flex h-7 max-w-[170px] shrink-0 items-center gap-1 rounded-btn border px-2.5 text-xs transition-colors ${
+                    activeGroupId === group.id
+                      ? 'border-warning/45 bg-warning/15 text-warning'
+                      : 'border-border bg-surface text-secondary hover:border-warning/35 hover:text-foreground'
+                  }`}
+                  title={`${group.name} · ${group.count} 只`}
+                >
+                  <span className="truncate">{group.name}</span>
+                  <span className="font-mono text-[10px] opacity-70">{group.count}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        {activeGroup && (
+          <div className="mt-1 flex items-center gap-1.5 text-[11px] text-muted">
+            <span>{groupSourceLabel(activeGroup.source)}</span>
+            <span className="text-border">/</span>
+            <span className="truncate text-accent">{activeGroup.name}</span>
+            <span className="font-mono">{sortedRows.length}/{activeGroup.count}</span>
+          </div>
+        )}
+      </div>
 
       {/* 筛选栏 */}
       {filterOpen && (
@@ -856,6 +1181,178 @@ export function Watchlist() {
         </div>
       )}
 
+      {groupPanelOpen && (
+        <div className="border-b border-border bg-surface/50 px-5 py-3">
+          <div className="grid gap-3 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)_minmax(0,1fr)]">
+            <div className="min-w-0 rounded-card border border-border bg-base/40 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="text-xs font-medium text-foreground">自定义分组</div>
+                <span className="font-mono text-[11px] text-muted">{customGroups.length}</span>
+              </div>
+              <div className="mb-2 flex gap-2">
+                <input
+                  value={groupName}
+                  onChange={e => setGroupName(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && groupName.trim()) createGroup.mutate()
+                  }}
+                  placeholder="新分组名称"
+                  className="h-8 min-w-0 flex-1 rounded-btn border border-border bg-surface px-2.5 text-xs text-foreground outline-none focus:border-accent"
+                />
+                <button
+                  type="button"
+                  onClick={() => createGroup.mutate()}
+                  disabled={!groupName.trim() || createGroup.isPending}
+                  className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-btn bg-accent/15 text-accent hover:bg-accent/25 disabled:opacity-40"
+                  title="新建分组"
+                >
+                  <Plus className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="max-h-36 overflow-auto rounded-btn border border-border bg-surface/60">
+                {customGroups.length > 0 ? customGroups.map(group => (
+                  <div
+                    key={group.id}
+                    className={`flex items-center justify-between gap-2 border-b border-border/50 px-2.5 py-2 text-xs last:border-b-0 ${
+                      activeGroupId === group.id ? 'bg-accent/10' : ''
+                    }`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setActiveGroupId(group.id)}
+                      className="min-w-0 flex-1 text-left"
+                      title={`切换到 ${group.name}`}
+                    >
+                      <span className="block truncate text-foreground">{group.name}</span>
+                      <span className="font-mono text-[10px] text-muted">{group.count} 只</span>
+                    </button>
+                    {confirmDeleteGroupId === group.id ? (
+                      <div className="flex shrink-0 items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => deleteGroup.mutate(group.id)}
+                          disabled={deleteGroup.isPending}
+                          className="h-6 rounded-btn bg-danger/10 px-2 text-[10px] text-danger hover:bg-danger/20 disabled:opacity-40"
+                        >
+                          确认
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmDeleteGroupId(null)}
+                          className="inline-flex h-6 w-6 items-center justify-center rounded-btn text-muted hover:bg-elevated hover:text-foreground"
+                          title="取消"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDeleteGroupId(group.id)}
+                        disabled={deleteGroup.isPending}
+                        className="shrink-0 rounded p-1 text-muted hover:bg-danger/10 hover:text-danger disabled:opacity-40"
+                        title="删除分组"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
+                  </div>
+                )) : (
+                  <div className="px-3 py-3 text-xs text-muted">暂无自定义分组</div>
+                )}
+              </div>
+            </div>
+
+            <div className="min-w-0 rounded-card border border-border bg-base/40 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="text-xs font-medium text-foreground">股票分组</div>
+                <select
+                  value={groupSymbol}
+                  onChange={e => setGroupSymbol(e.target.value)}
+                  className="h-8 max-w-[190px] rounded-btn border border-border bg-surface px-2 text-xs text-foreground outline-none focus:border-accent"
+                >
+                  {allSymbols.map(symbol => (
+                    <option key={symbol} value={symbol}>{symbol}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="max-h-44 overflow-auto rounded-btn border border-border bg-surface/60">
+                {customGroups.length > 0 ? customGroups.map(group => (
+                  <label key={group.id} className="flex items-center justify-between gap-2 border-b border-border/50 px-3 py-2 text-xs last:border-b-0">
+                    <span className="flex min-w-0 items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedGroupSet.has(group.id)}
+                        onChange={() => toggleSymbolGroup(group.id)}
+                        disabled={!groupSymbol || setSymbolGroups.isPending}
+                        className="h-3.5 w-3.5 shrink-0 accent-accent"
+                      />
+                      <span className="truncate text-foreground">{group.name}</span>
+                    </span>
+                    <span className="shrink-0 font-mono text-muted">{group.count}</span>
+                  </label>
+                )) : (
+                  <div className="px-3 py-3 text-xs text-muted">先创建自定义分组</div>
+                )}
+              </div>
+            </div>
+
+            <div className="min-w-0 rounded-card border border-border bg-base/40 p-3">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <div className="text-xs font-medium text-foreground">概念标签</div>
+                <span className="font-mono text-[11px] text-muted">{conceptGroups.length}</span>
+              </div>
+              <div className="max-h-28 overflow-auto rounded-btn border border-border bg-surface/60">
+                {conceptGroups.length > 0 ? conceptGroups.slice(0, 60).map(group => (
+                  <button
+                    key={group.id}
+                    type="button"
+                    onClick={() => setActiveGroupId(group.id)}
+                    className={`flex w-full items-center justify-between gap-2 border-b border-border/50 px-3 py-2 text-left text-xs last:border-b-0 transition-colors hover:bg-elevated/50 ${
+                      activeGroupId === group.id ? 'bg-warning/10' : ''
+                    }`}
+                    title={`切换到 ${group.name}`}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-foreground">{group.name}</span>
+                      <span className="text-[10px] text-muted">系统概念</span>
+                    </span>
+                    <span className="shrink-0 font-mono text-muted">{group.count}</span>
+                  </button>
+                )) : (
+                  <div className="px-3 py-3 text-xs text-muted">暂无概念数据</div>
+                )}
+              </div>
+              <div className="mb-2 mt-3 flex items-center justify-between gap-2">
+                <div className="text-xs font-medium text-foreground">行业/市场</div>
+                <span className="font-mono text-[11px] text-muted">{otherAutoGroups.length}</span>
+              </div>
+              <div className="max-h-28 overflow-auto rounded-btn border border-border bg-surface/60">
+                {otherAutoGroups.length > 0 ? otherAutoGroups.slice(0, 60).map(group => (
+                  <button
+                    key={group.id}
+                    type="button"
+                    onClick={() => setActiveGroupId(group.id)}
+                    className={`flex w-full items-center justify-between gap-2 border-b border-border/50 px-3 py-2 text-left text-xs last:border-b-0 transition-colors hover:bg-elevated/50 ${
+                      activeGroupId === group.id ? 'bg-accent/10' : ''
+                    }`}
+                    title={`切换到 ${group.name}`}
+                  >
+                    <span className="min-w-0">
+                      <span className="block truncate text-foreground">{group.name}</span>
+                      <span className="text-[10px] text-muted">{group.source === 'industry' ? '行业' : group.source === 'exchange' ? '市场' : '自动'}</span>
+                    </span>
+                    <span className="shrink-0 font-mono text-muted">{group.count}</span>
+                  </button>
+                )) : (
+                  <div className="px-3 py-3 text-xs text-muted">暂无行业/市场数据</div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 可滚动列表区 — 占满剩余高度，内部独立滚动，表头 sticky 固定 */}
       <div className="flex-1 min-h-0 overflow-y-auto">
         <div className="px-5 py-3">
@@ -870,39 +1367,43 @@ export function Watchlist() {
               hint="点击右上角搜索按钮查找并预览标的，进入个股详情后可加入观察池。"
             />
           ) : viewMode === 'table' ? (
-            <StockDataTable
-              columns={visibleColumns}
-              rows={sortedRows}
-              headerSticky
-              sort={sort}
-              onSortToggle={handleSortToggle}
-              rowKey={(r: any) => r.symbol}
-              rowClassName={(r: any) => `border-t border-border hover:bg-elevated/50 transition-colors duration-150 ease-smooth ${r._missing_enriched ? 'opacity-60' : ''}`}
-              // 日k列表头：标签 + 显示/隐藏眼睛按钮
-              renderHeaderContent={(col) => {
-                if (col.source.type === 'builtin' && col.source.key === 'candle') {
-                  return (
-                    <span className="inline-flex items-center justify-center gap-1.5">
-                      <span>{col.label}</span>
-                      <button
-                        type="button"
-                        onClick={(event) => { event.stopPropagation(); toggleDailyKChart() }}
-                        className={`inline-flex items-center justify-center w-5 h-5 rounded transition-colors ${
-                          dailyKChartVisible
-                            ? 'text-accent bg-accent/10 hover:bg-accent/20'
-                            : 'text-muted hover:text-foreground hover:bg-elevated'
-                        }`}
-                        title={dailyKChartVisible ? '隐藏日k蜡烛' : '显示日k蜡烛'}
-                        aria-label={dailyKChartVisible ? '隐藏日k蜡烛' : '显示日k蜡烛'}
-                      >
-                        {dailyKChartVisible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-                      </button>
-                    </span>
-                  )
-                }
-                return undefined
-              }}
-              renderCell={(r: any, col: ColumnConfig) => {
+            <div className="space-y-2">
+              <StockDataTable
+                columns={visibleColumns}
+                rows={sortedRows}
+                headerSticky
+                sort={sort}
+                onSortToggle={handleSortToggle}
+                rowKey={(r: any) => r.symbol}
+                rowClassName={(r: any) => `border-t border-border hover:bg-elevated/50 transition-colors duration-150 ease-smooth ${r._missing_enriched ? 'opacity-60' : ''}`}
+                // 日k列表头：标签 + 显示/隐藏眼睛按钮
+                renderHeaderContent={(col) => {
+                  if (col.source.type === 'builtin' && col.source.key === 'symbol') {
+                    return '名称/代码'
+                  }
+                  if (col.source.type === 'builtin' && col.source.key === 'candle') {
+                    return (
+                      <span className="inline-flex items-center justify-center gap-1.5">
+                        <span>{col.label}</span>
+                        <button
+                          type="button"
+                          onClick={(event) => { event.stopPropagation(); toggleDailyKChart() }}
+                          className={`inline-flex items-center justify-center w-5 h-5 rounded transition-colors ${
+                            dailyKChartVisible
+                              ? 'text-accent bg-accent/10 hover:bg-accent/20'
+                              : 'text-muted hover:text-foreground hover:bg-elevated'
+                          }`}
+                          title={dailyKChartVisible ? '隐藏日k蜡烛' : '显示日k蜡烛'}
+                          aria-label={dailyKChartVisible ? '隐藏日k蜡烛' : '显示日k蜡烛'}
+                        >
+                          {dailyKChartVisible ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
+                        </button>
+                      </span>
+                    )
+                  }
+                  return undefined
+                }}
+                renderCell={(r: any, col: ColumnConfig) => {
                 // ext 列
                 if (col.source.type === 'ext') {
                   return renderExtCell(r, col, expandedCells, handleToggleExpand)
@@ -914,60 +1415,37 @@ export function Watchlist() {
                 // 自选页 symbol 列：预览 + 内嵌删除（减号图标，二次确认）
                 if (key === 'symbol') {
                   const board = boardTag(r.symbol)
+                  const displayName = name || r.symbol
+                  const nameColor = pct == null || Number.isNaN(pct) || pct === 0
+                    ? 'text-foreground'
+                    : priceColorClass(pct)
                   return (
-                    <td className="px-1.5 py-1.5">
-                      <div className="flex items-center gap-1 w-full">
+                    <td className="px-2 py-1.5">
+                      <div className="flex min-w-0 items-center gap-2">
                         <button
                           type="button"
                           onClick={() => { setPreviewSymbol(r.symbol); setPreviewName(name ?? '') }}
-                          className="flex items-center gap-1 text-left min-w-0"
+                          className="min-w-0 flex-1 text-left"
                         >
-                          <span className="font-mono text-foreground text-xs group-hover:text-accent transition-colors duration-150">
-                            {r.symbol}
+                          <span className={`block truncate text-sm font-medium leading-5 transition-colors duration-150 ${nameColor}`}>
+                            {displayName}
                           </span>
-                          {name && (
-                            <span className="text-xs text-secondary truncate group-hover:text-foreground transition-colors duration-150">
-                              {name}
+                          <span className="mt-0.5 flex min-w-0 items-center gap-1">
+                            <span className="truncate font-mono text-[11px] leading-4 text-muted group-hover:text-secondary transition-colors duration-150">
+                              {r.symbol}
                             </span>
-                          )}
-                          {board ? (
-                            <span className={`shrink-0 inline-flex items-center justify-center w-[18px] h-[18px] rounded text-[9px] font-bold leading-none border ${board.color}`}>
-                              {board.label}
-                            </span>
-                          ) : null}
-                          {r._missing_enriched ? (
-                            <span className="shrink-0 rounded border border-warning/25 bg-warning/10 px-1 py-px text-[9px] font-medium text-warning">
-                              待同步
-                            </span>
-                          ) : null}
+                            {board ? (
+                              <span className={`shrink-0 inline-flex items-center justify-center rounded border px-1 py-px text-[9px] font-bold leading-none ${board.color}`}>
+                                {board.label}
+                              </span>
+                            ) : null}
+                            {r._missing_enriched ? (
+                              <span className="shrink-0 rounded border border-warning/25 bg-warning/10 px-1 py-px text-[9px] font-medium text-warning">
+                                待同步
+                              </span>
+                            ) : null}
+                          </span>
                         </button>
-                        {/* 删除入口：默认减号图标，二次确认时替换为确定按钮 */}
-                        <div className="ml-auto pl-1 shrink-0">
-                          {confirmRemove === r.symbol ? (
-                            <div className="flex items-center gap-1">
-                              <button
-                                onClick={() => { remove.mutate(r.symbol); setConfirmRemove(null) }}
-                                className="px-1.5 py-0.5 rounded text-[10px] text-danger bg-danger/10 hover:bg-danger/20 transition-colors"
-                              >
-                                确认
-                              </button>
-                              <button
-                                onClick={() => setConfirmRemove(null)}
-                                className="p-0.5 text-muted hover:text-foreground transition-colors"
-                              >
-                                <X className="h-3 w-3" />
-                              </button>
-                            </div>
-                          ) : (
-                            <button
-                              onClick={() => setConfirmRemove(r.symbol)}
-                              className="p-0.5 text-muted hover:text-danger transition-colors duration-150 ease-smooth"
-                              aria-label="移除"
-                            >
-                              <Minus className="h-3.5 w-3.5" />
-                            </button>
-                          )}
-                        </div>
                       </div>
                     </td>
                   )
@@ -1020,30 +1498,220 @@ export function Watchlist() {
                 // 其余纯数据列 → 共享原语
                 return renderBuiltinDataCell(r, col)
               }}
-              className="rounded-card overflow-x-auto"
-            />
+                extraHeader={<span className="inline-flex items-center justify-end gap-1">操作</span>}
+                renderExtraCol={(r: any) => {
+                  const rowGroupIds = groupMemberships[r.symbol] ?? []
+                  const rowCustomGroups = customGroups.filter(group => rowGroupIds.includes(group.id))
+                  const groupSummary = customGroupSummary(rowCustomGroups)
+                  const groupTitle = customGroupTitle(r.symbol, rowCustomGroups, customGroups.length > 0)
+                  return (
+                    <td className="px-2 py-1.5 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openGroupPicker(r.symbol, r.rt_name ?? r.name)}
+                          disabled={setSymbolGroups.isPending}
+                          className={`inline-flex h-7 w-32 items-center justify-between gap-1 rounded-btn border px-2 text-[11px] outline-none transition-colors disabled:opacity-50 ${
+                            rowCustomGroups.length
+                              ? 'border-accent/35 bg-accent/10 text-accent hover:bg-accent/15'
+                              : 'border-border bg-surface text-secondary hover:border-accent/35 hover:text-foreground'
+                          }`}
+                          title={groupTitle}
+                        >
+                          <Tags className="h-3.5 w-3.5 shrink-0" />
+                          <span className="min-w-0 flex-1 truncate text-left">{groupSummary ?? '设分组'}</span>
+                        </button>
+                        {confirmRemove === r.symbol ? (
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => { remove.mutate(r.symbol); setConfirmRemove(null) }}
+                              className="h-7 rounded-btn bg-danger/10 px-2 text-[11px] text-danger hover:bg-danger/20"
+                            >
+                              确认
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmRemove(null)}
+                              className="inline-flex h-7 w-7 items-center justify-center rounded-btn text-muted hover:bg-elevated hover:text-foreground"
+                              title="取消"
+                            >
+                              <X className="h-3.5 w-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmRemove(r.symbol)}
+                            className="inline-flex h-7 w-7 items-center justify-center rounded-btn text-muted hover:bg-danger/10 hover:text-danger"
+                            title="移出观察池"
+                            aria-label="移出观察池"
+                          >
+                            <Minus className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  )
+                }}
+                className="rounded-card overflow-x-auto"
+              />
+            </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
-              {rows.map((r: any) => (
-                <StockCard
-                  key={r.symbol}
-                  r={r}
-                  candleRows={klineData[r.symbol] ?? []}
-                  showCandle={dailyKVisible}
-                  onPreview={(sym, name) => { setPreviewSymbol(sym); setPreviewName(name) }}
-                  onConfirmRemove={(sym) => { remove.mutate(sym); setConfirmRemove(null) }}
-                  onCancelRemove={() => setConfirmRemove(null)}
-                  onRequestRemove={(sym) => setConfirmRemove(sym)}
-                  confirmRemove={confirmRemove}
-                  extCols={visibleExtCols}
-                  expandedCells={expandedCells}
-                  onToggleExpand={handleToggleExpand}
-                />
-              ))}
+              {sortedRows.map((r: any) => {
+                const rowGroupIds = groupMemberships[r.symbol] ?? []
+                const rowCustomGroups = customGroups.filter(group => rowGroupIds.includes(group.id))
+                return (
+                  <StockCard
+                    key={r.symbol}
+                    r={r}
+                    candleRows={klineData[r.symbol] ?? []}
+                    showCandle={dailyKVisible}
+                    onPreview={(sym, name) => { setPreviewSymbol(sym); setPreviewName(name) }}
+                    onConfirmRemove={(sym) => { remove.mutate(sym); setConfirmRemove(null) }}
+                    onCancelRemove={() => setConfirmRemove(null)}
+                    onRequestRemove={(sym) => setConfirmRemove(sym)}
+                    confirmRemove={confirmRemove}
+                    groupSummary={customGroupSummary(rowCustomGroups)}
+                    groupTitle={customGroupTitle(r.symbol, rowCustomGroups, customGroups.length > 0)}
+                    hasGroups={rowCustomGroups.length > 0}
+                    onOpenGroups={openGroupPicker}
+                    extCols={visibleExtCols}
+                    expandedCells={expandedCells}
+                    onToggleExpand={handleToggleExpand}
+                  />
+                )
+              })}
             </div>
           )}
         </div>
       </div>
+
+      {/* 单股归组弹窗 */}
+      <AnimatePresence>
+        {groupPicker && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+              onClick={closeGroupPicker}
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.96, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.98, y: 8 }}
+              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+              className="relative w-[92vw] max-w-[440px] rounded-card border border-border bg-base shadow-2xl"
+            >
+              <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-medium text-foreground">选择分组</div>
+                  <div className="mt-0.5 flex items-center gap-2 text-xs text-muted">
+                    <span className="truncate text-secondary">{groupPicker.name || groupPicker.symbol}</span>
+                    <span className="font-mono">{groupPicker.symbol}</span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={closeGroupPicker}
+                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-btn text-muted hover:bg-elevated hover:text-foreground"
+                  title="关闭"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              <div className="p-4">
+                <div className="relative">
+                  <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted" />
+                  <input
+                    autoFocus
+                    value={groupPickerQuery}
+                    onChange={e => setGroupPickerQuery(e.target.value)}
+                    placeholder="搜索分组，或输入新分组名"
+                    className="h-9 w-full rounded-btn border border-border bg-surface pl-8 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted focus:border-accent"
+                  />
+                </div>
+
+                <div className="mt-3 flex items-center justify-between gap-2 text-xs">
+                  <span className="text-muted">
+                    当前：
+                    <span className={pickerCustomGroups.length ? 'text-accent' : 'text-secondary'}>
+                      {pickerCustomGroups.length
+                        ? `${pickerCustomGroups.length} 个分组`
+                        : '未分组'}
+                    </span>
+                  </span>
+                  {pickerCustomGroups.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setSymbolCustomGroups(groupPicker.symbol, [])
+                      }}
+                      className="rounded-btn px-2 py-1 text-muted hover:bg-elevated hover:text-foreground"
+                    >
+                      清空全部
+                    </button>
+                  )}
+                </div>
+
+                <div className="mt-3 max-h-72 overflow-auto rounded-card border border-border bg-surface/60">
+                  {filteredPickerGroups.length > 0 ? filteredPickerGroups.map(group => {
+                    const active = pickerCustomGroupSet.has(group.id)
+                    return (
+                      <label
+                        key={group.id}
+                        className={`flex w-full cursor-pointer items-center justify-between gap-3 border-b border-border/50 px-3 py-2.5 text-left text-sm last:border-b-0 transition-colors ${
+                          active ? 'bg-accent/10 text-accent' : 'text-foreground hover:bg-elevated/70'
+                        }`}
+                      >
+                        <span className="flex min-w-0 items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={active}
+                            onChange={() => togglePickerGroup(group.id)}
+                            disabled={setSymbolGroups.isPending}
+                            className="h-3.5 w-3.5 shrink-0 accent-accent"
+                          />
+                          <span className="min-w-0">
+                            <span className="block truncate font-medium">{group.name}</span>
+                            <span className="mt-0.5 block font-mono text-[11px] text-muted">{group.count} 只</span>
+                          </span>
+                        </span>
+                        {active ? <Check className="h-4 w-4 shrink-0" /> : <Tags className="h-3.5 w-3.5 shrink-0 text-muted" />}
+                      </label>
+                    )
+                  }) : (
+                    <div className="px-3 py-4 text-sm text-muted">没有匹配的自定义分组</div>
+                  )}
+                </div>
+
+                {canCreatePickerGroup && (
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      const name = groupPickerQuery.trim()
+                      if (!name) return
+                      const res = await createGroupFromPicker.mutateAsync(name)
+                      setSymbolCustomGroups(groupPicker.symbol, [...pickerCustomGroupIds, res.group.id])
+                      setGroupPickerQuery('')
+                    }}
+                    disabled={createGroupFromPicker.isPending || setSymbolGroups.isPending}
+                    className="mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-btn border border-accent/35 bg-accent/10 text-sm font-medium text-accent hover:bg-accent/15 disabled:opacity-50"
+                  >
+                    <Plus className="h-4 w-4" />
+                    新建「{groupPickerQuery.trim()}」并加入
+                  </button>
+                )}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* 清空确认弹窗 */}
       <AnimatePresence>

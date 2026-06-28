@@ -7,7 +7,7 @@ import time
 from datetime import date
 
 import polars as pl
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from pydantic import BaseModel
 
 from app.services import watchlist
@@ -25,6 +25,22 @@ class AddRequest(BaseModel):
 class BatchAddRequest(BaseModel):
     symbols: list[str]
     note: str = ""
+
+
+class WatchlistGroupIn(BaseModel):
+    name: str
+    description: str = ""
+    color: str | None = None
+
+
+class WatchlistGroupUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    color: str | None = None
+
+
+class SymbolGroupsIn(BaseModel):
+    group_ids: list[str]
 
 
 @router.get("")
@@ -56,6 +72,46 @@ def clear_all():
     """清空自选列表。"""
     count = watchlist.clear()
     return {"removed": count}
+
+
+@router.get("/groups")
+def list_groups():
+    return watchlist.list_groups()
+
+
+@router.post("/groups")
+def create_group(req: WatchlistGroupIn):
+    try:
+        group = watchlist.create_group(req.name, req.description, req.color)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"group": group, **watchlist.list_groups()}
+
+
+@router.put("/groups/{group_id}")
+def update_group(group_id: str, req: WatchlistGroupUpdate):
+    try:
+        group = watchlist.update_group(group_id, req.model_dump(exclude_unset=True))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if not group:
+        raise HTTPException(status_code=404, detail="分组不存在")
+    return {"group": group, **watchlist.list_groups()}
+
+
+@router.delete("/groups/{group_id}")
+def delete_group(group_id: str):
+    return {"removed": watchlist.delete_group(group_id), **watchlist.list_groups()}
+
+
+@router.put("/{symbol}/groups")
+def set_symbol_groups(symbol: str, req: SymbolGroupsIn):
+    return watchlist.set_symbol_groups(symbol, req.group_ids)
+
+
+@router.get("/group-preview")
+def group_preview():
+    return watchlist.build_group_preview()
 
 
 # 自选页需要的列

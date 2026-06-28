@@ -7,7 +7,7 @@ from pathlib import Path
 import polars as pl
 
 from app.config import settings
-from app.services import alert_store, preferences, strategy_cache
+from app.services import alert_store, preferences, strategy_cache, watchlist as watchlist_service
 from app.strategy import monitor_rules
 from app.tickflow.pools import DEMO_SYMBOLS, get_pool
 
@@ -23,6 +23,13 @@ SOURCE_LABELS = {
     "local_fallback": "本地维表兜底",
     "demo": "示例标的",
     "manual_include": "手动追加",
+}
+WATCHLIST_PERSIST_SOURCES = {
+    "watchlist",
+    "monitor_rules",
+    "strategy_tracking",
+    "recent_alerts",
+    "manual_include",
 }
 
 
@@ -149,9 +156,18 @@ def resolve_focus_universe_detail(
     symbols: set[str] = set()
     by_source: dict[str, list[str]] = {}
 
+    watchlist_all_symbols: set[str] = set()
     if sources.get("watchlist", True):
         try:
-            watchlist_symbols = {str(s).upper() for s in get_pool("watchlist")}
+            watchlist_all_symbols = {str(s).upper() for s in get_pool("watchlist")}
+            if cfg.get("watchlist_group_mode") == "selected":
+                selected_symbols = set(watchlist_service.symbols_for_groups(
+                    cfg.get("watchlist_group_ids") or [],
+                    by_source={"watchlist": sorted(watchlist_all_symbols)},
+                ))
+                watchlist_symbols = watchlist_all_symbols & selected_symbols
+            else:
+                watchlist_symbols = watchlist_all_symbols
             symbols.update(watchlist_symbols)
             _add_source(by_source, "watchlist", watchlist_symbols)
         except Exception as e:  # noqa: BLE001
@@ -199,6 +215,10 @@ def resolve_focus_universe_detail(
     for values in by_source.values():
         name_symbols.update(values)
     names = _instrument_names(d, name_symbols)
+    watchlist_groups = watchlist_service.build_group_preview(
+        sorted(watchlist_all_symbols),
+        by_source=by_source,
+    )
 
     return {
         "symbols": final_symbols,
@@ -210,4 +230,27 @@ def resolve_focus_universe_detail(
         "fallback_used": fallback_used,
         "config": cfg,
         "source_labels": SOURCE_LABELS,
+        "watchlist_groups": watchlist_groups,
     }
+
+
+def persist_configured_focus_to_watchlist(detail: dict) -> int:
+    """Persist configured focus sources to the observation pool.
+
+    Local fallback/demo symbols are intentionally ignored; they are only empty-state
+    safety nets and should not silently become the user's observation pool.
+    """
+    by_source = detail.get("by_source") or {}
+    excluded = set(detail.get("excluded_symbols") or [])
+    symbols: set[str] = set()
+    for source, values in by_source.items():
+        if source not in WATCHLIST_PERSIST_SOURCES:
+            continue
+        for value in values or []:
+            symbol = str(value or "").strip().upper()
+            if symbol and symbol not in excluded:
+                symbols.add(symbol)
+    if not symbols:
+        return 0
+    watchlist_service.add_many(sorted(symbols), note="sync_range")
+    return len(symbols)

@@ -645,6 +645,29 @@ export interface FocusUniverseConfig {
   exclude_symbols: string[]
   alert_limit: number
   local_fallback_limit: number
+  watchlist_group_mode?: 'all' | 'selected'
+  watchlist_group_ids?: string[]
+}
+
+export interface WatchlistGroupPreviewItem {
+  id: string
+  name: string
+  kind: 'custom' | 'auto'
+  count: number
+  symbols: string[]
+  description?: string
+  color?: string | null
+  source?: string
+  created_at?: string
+  updated_at?: string
+}
+
+export interface WatchlistGroupPreview {
+  mode: string
+  symbols: string[]
+  custom: WatchlistGroupPreviewItem[]
+  auto: WatchlistGroupPreviewItem[]
+  memberships: Record<string, string[]>
 }
 
 export interface FocusUniversePreview {
@@ -657,6 +680,7 @@ export interface FocusUniversePreview {
   excluded_symbols: string[]
   fallback_used: string | null
   source_labels: Record<string, string>
+  watchlist_groups?: WatchlistGroupPreview
 }
 
 // ===== Strategy Alert =====
@@ -961,6 +985,25 @@ export const api = {
   watchlistClear: () =>
     request<{ removed: number }>('/api/watchlist', { method: 'DELETE' }),
   watchlistQuotes: () => request<{ quotes: Quote[] }>('/api/watchlist/quotes'),
+  watchlistGroups: () => request<{ groups: WatchlistGroupPreviewItem[]; memberships: Record<string, string[]> }>('/api/watchlist/groups'),
+  watchlistGroupPreview: () => request<WatchlistGroupPreview>('/api/watchlist/group-preview'),
+  createWatchlistGroup: (body: { name: string; description?: string; color?: string | null }) =>
+    request<{ group: WatchlistGroupPreviewItem; groups: WatchlistGroupPreviewItem[]; memberships: Record<string, string[]> }>('/api/watchlist/groups', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  updateWatchlistGroup: (id: string, body: { name?: string; description?: string; color?: string | null }) =>
+    request<{ group: WatchlistGroupPreviewItem; groups: WatchlistGroupPreviewItem[]; memberships: Record<string, string[]> }>(`/api/watchlist/groups/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+  deleteWatchlistGroup: (id: string) =>
+    request<{ removed: number; groups: WatchlistGroupPreviewItem[]; memberships: Record<string, string[]> }>(`/api/watchlist/groups/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  setWatchlistSymbolGroups: (symbol: string, groupIds: string[]) =>
+    request<{ symbol: string; group_ids: string[] }>(`/api/watchlist/${encodeURIComponent(symbol)}/groups`, {
+      method: 'PUT',
+      body: JSON.stringify({ group_ids: groupIds }),
+    }),
   watchlistEnriched: (extColumns?: string) =>
     request<{ rows: any[]; as_of: string | null; elapsed_ms: number; missing_symbols?: string[] }>(
       extColumns

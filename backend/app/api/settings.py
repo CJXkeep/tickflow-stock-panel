@@ -356,6 +356,8 @@ class FocusUniverseConfigIn(BaseModel):
     exclude_symbols: list[str] = Field(default_factory=list)
     alert_limit: int | None = None
     local_fallback_limit: int | None = None
+    watchlist_group_mode: str | None = None
+    watchlist_group_ids: list[str] = Field(default_factory=list)
 
 
 @router.get("/preferences")
@@ -396,6 +398,8 @@ def get_focus_universe_preferences(request: Request) -> dict:
     repo = getattr(request.app.state, "repo", None)
     data_dir = repo.store.data_dir if repo else None
     detail = focus_universe.resolve_focus_universe_detail(data_dir)
+    if focus_universe.persist_configured_focus_to_watchlist(detail):
+        detail = focus_universe.resolve_focus_universe_detail(data_dir)
     return {
         "config": preferences.get_focus_universe_config(),
         "count": detail["count"],
@@ -406,6 +410,7 @@ def get_focus_universe_preferences(request: Request) -> dict:
         "excluded_symbols": detail["excluded_symbols"],
         "fallback_used": detail["fallback_used"],
         "source_labels": detail["source_labels"],
+        "watchlist_groups": detail["watchlist_groups"],
     }
 
 
@@ -418,6 +423,8 @@ def update_focus_universe_preferences(req: FocusUniverseConfigIn, request: Reque
     cfg = req.model_dump(exclude_unset=True, exclude_none=True)
     preferences.set_focus_universe_config(cfg)
     detail = focus_universe.resolve_focus_universe_detail(data_dir)
+    if focus_universe.persist_configured_focus_to_watchlist(detail):
+        detail = focus_universe.resolve_focus_universe_detail(data_dir)
     return {
         "config": preferences.get_focus_universe_config(),
         "count": detail["count"],
@@ -428,6 +435,7 @@ def update_focus_universe_preferences(req: FocusUniverseConfigIn, request: Reque
         "excluded_symbols": detail["excluded_symbols"],
         "fallback_used": detail["fallback_used"],
         "source_labels": detail["source_labels"],
+        "watchlist_groups": detail["watchlist_groups"],
     }
 
 

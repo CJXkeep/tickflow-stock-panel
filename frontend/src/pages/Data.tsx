@@ -320,15 +320,15 @@ export function Data() {
               <span className="font-mono text-foreground">{providerLabel}</span>
             </span>
             {!hasData && !isLoading && (
-              <span className="text-xs text-accent animate-pulse">首次使用请先同步关注范围</span>
+              <span className="text-xs text-accent animate-pulse">首次使用请先配置同步范围</span>
             )}
             <button
               onClick={() => setOpenSettings(v => v === 'focus' ? null : 'focus')}
-              title="设置关注范围"
+              title="设置同步范围与观察池分组"
               className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-btn border border-border bg-surface text-secondary text-xs font-medium hover:text-foreground hover:bg-elevated transition-colors duration-150"
             >
               <SlidersHorizontal className="h-3.5 w-3.5" />
-              范围{focusCount != null ? <span className="font-mono text-muted">{focusCount}</span> : null}
+              同步范围{focusCount != null ? <span className="font-mono text-muted">{focusCount}</span> : null}
             </button>
             <button
               onClick={() => startSync.mutate()}
@@ -819,7 +819,7 @@ export function Data() {
 
       <AnimatePresence>
         {openSettings === 'focus' && (
-          <SettingsModal title="关注范围" onClose={() => setOpenSettings(null)} maxWidth="max-w-2xl">
+            <SettingsModal title="同步范围 · 观察池分组" onClose={() => setOpenSettings(null)} maxWidth="max-w-2xl">
             <FocusUniversePanel
               preview={focusUniverse.data}
               loading={focusUniverse.isLoading}

@@ -131,6 +131,8 @@ export function FocusUniversePanel({
   const [excludeText, setExcludeText] = useState('')
   const [alertLimit, setAlertLimit] = useState('200')
   const [fallbackLimit, setFallbackLimit] = useState('30')
+  const [watchlistGroupMode, setWatchlistGroupMode] = useState<'all' | 'selected'>('all')
+  const [watchlistGroupIds, setWatchlistGroupIds] = useState<string[]>([])
   const [query, setQuery] = useState('')
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [showSourceDetails, setShowSourceDetails] = useState(false)
@@ -143,6 +145,8 @@ export function FocusUniversePanel({
     setExcludeText(formatSymbols(preview.config.exclude_symbols))
     setAlertLimit(String(preview.config.alert_limit))
     setFallbackLimit(String(preview.config.local_fallback_limit))
+    setWatchlistGroupMode(preview.config.watchlist_group_mode ?? 'all')
+    setWatchlistGroupIds(preview.config.watchlist_group_ids ?? [])
   }, [preview])
 
   const includeSymbols = useMemo(() => parseSymbols(includeText), [includeText])
@@ -191,34 +195,77 @@ export function FocusUniversePanel({
     [validExcludeSet, validIncludeSymbols],
   )
 
+  const excludeSet = useMemo(() => new Set(validExcludeSymbols), [validExcludeSymbols])
+  const watchlistGroups = preview?.watchlist_groups
+  const groupOptions = useMemo(
+    () => [...(watchlistGroups?.custom ?? []), ...(watchlistGroups?.auto ?? [])],
+    [watchlistGroups],
+  )
+  const groupOptionIdSet = useMemo(() => new Set(groupOptions.map(group => group.id)), [groupOptions])
+  const selectedGroupSet = useMemo(() => new Set(watchlistGroupIds), [watchlistGroupIds])
+  const selectedGroups = useMemo(
+    () => groupOptions.filter(group => selectedGroupSet.has(group.id)),
+    [groupOptions, selectedGroupSet],
+  )
+  const staleGroupIds = useMemo(
+    () => watchlistGroupIds.filter(id => !groupOptionIdSet.has(id)),
+    [groupOptionIdSet, watchlistGroupIds],
+  )
+  const validWatchlistGroupIds = useMemo(
+    () => watchlistGroupIds.filter(id => groupOptionIdSet.has(id)),
+    [groupOptionIdSet, watchlistGroupIds],
+  )
+  const localWatchlistSymbols = useMemo(() => {
+    if (watchlistGroupMode === 'all') return watchlistGroups?.symbols ?? preview?.by_source?.watchlist ?? []
+    const out = new Set<string>()
+    groupOptions.forEach(group => {
+      if (selectedGroupSet.has(group.id)) group.symbols.forEach(symbol => out.add(symbol))
+    })
+    return Array.from(out).sort()
+  }, [groupOptions, preview?.by_source?.watchlist, selectedGroupSet, watchlistGroupMode, watchlistGroups?.symbols])
+  const localWatchlistSample = useMemo(
+    () => localWatchlistSymbols.slice(0, 18),
+    [localWatchlistSymbols],
+  )
+
   const payload = useMemo<Partial<FocusUniverseConfig>>(() => ({
     sources,
     include_symbols: effectiveIncludeSymbols,
     exclude_symbols: validExcludeSymbols,
     alert_limit: Number(alertLimit) || 0,
     local_fallback_limit: Number(fallbackLimit) || 0,
-  }), [sources, effectiveIncludeSymbols, validExcludeSymbols, alertLimit, fallbackLimit])
+    watchlist_group_mode: watchlistGroupMode,
+    watchlist_group_ids: watchlistGroupMode === 'selected' ? validWatchlistGroupIds : watchlistGroupIds,
+  }), [sources, effectiveIncludeSymbols, validExcludeSymbols, alertLimit, fallbackLimit, watchlistGroupMode, validWatchlistGroupIds, watchlistGroupIds])
 
   const update = useMutation({
     mutationFn: () => api.updateFocusUniverse(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: QK.focusUniverse })
       qc.invalidateQueries({ queryKey: QK.preferences })
+      qc.invalidateQueries({ queryKey: QK.watchlist })
+      qc.invalidateQueries({ queryKey: QK.watchlistGroupPreview })
+      qc.invalidateQueries({ queryKey: ['watchlist-enriched'] })
       onClose()
     },
   })
 
-  const excludeSet = useMemo(() => new Set(validExcludeSymbols), [validExcludeSymbols])
+  const toggleGroup = (groupId: string) => {
+    setWatchlistGroupIds(ids => ids.includes(groupId)
+      ? ids.filter(id => id !== groupId)
+      : [...ids, groupId])
+  }
   const localFinalSymbols = useMemo(() => {
     const fromSources = new Set<string>()
     Object.entries(preview?.by_source ?? {}).forEach(([source, symbols]) => {
       if (source === 'manual_include' || sources[source] === false) return
-      symbols.forEach(symbol => fromSources.add(symbol))
+      const sourceSymbols = source === 'watchlist' ? localWatchlistSymbols : symbols
+      sourceSymbols.forEach(symbol => fromSources.add(symbol))
     })
     effectiveIncludeSymbols.forEach(symbol => fromSources.add(symbol))
     validExcludeSymbols.forEach(symbol => fromSources.delete(symbol))
     return Array.from(fromSources).sort()
-  }, [preview?.by_source, sources, effectiveIncludeSymbols, validExcludeSymbols])
+  }, [preview?.by_source, sources, localWatchlistSymbols, effectiveIncludeSymbols, validExcludeSymbols])
 
   const search = useQuery({
     queryKey: QK.instrumentSearch(query),
@@ -288,6 +335,103 @@ export function FocusUniversePanel({
           </label>
         ))}
       </div>
+
+      {sources.watchlist && (
+        <div className="rounded-card border border-border bg-base/30 p-3">
+          <div className="mb-2 flex items-center justify-between gap-2 text-xs">
+            <span className="font-medium text-foreground">观察池范围</span>
+            <span className="font-mono text-muted">{localWatchlistSymbols.length} 只</span>
+          </div>
+          <div className="mb-3 inline-flex overflow-hidden rounded-btn border border-border bg-surface text-xs">
+            <button
+              type="button"
+              onClick={() => setWatchlistGroupMode('all')}
+              className={`px-3 py-1.5 transition-colors ${watchlistGroupMode === 'all' ? 'bg-accent/15 text-accent' : 'text-secondary hover:bg-elevated'}`}
+            >
+              全部观察池
+            </button>
+            <button
+              type="button"
+              onClick={() => setWatchlistGroupMode('selected')}
+              className={`border-l border-border px-3 py-1.5 transition-colors ${watchlistGroupMode === 'selected' ? 'bg-accent/15 text-accent' : 'text-secondary hover:bg-elevated'}`}
+            >
+              指定分组
+            </button>
+          </div>
+          {watchlistGroupMode === 'selected' && (
+            <div className="space-y-2">
+              <div className="max-h-44 overflow-auto rounded-btn border border-border bg-surface/60">
+                {groupOptions.length > 0 ? groupOptions.map(group => (
+                  <label
+                    key={group.id}
+                    className="flex items-center justify-between gap-2 border-b border-border/50 px-3 py-2 text-xs last:border-b-0"
+                  >
+                    <span className="flex min-w-0 items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={selectedGroupSet.has(group.id)}
+                        onChange={() => toggleGroup(group.id)}
+                        className="h-3.5 w-3.5 shrink-0 accent-accent"
+                      />
+                      <span className="min-w-0">
+                        <span className="block truncate text-foreground">{group.name}</span>
+                        <span className="text-[10px] text-muted">{group.kind === 'auto' ? '自动分组' : '自定义分组'}</span>
+                      </span>
+                    </span>
+                    <span className="shrink-0 font-mono text-muted">{group.count}</span>
+                  </label>
+                )) : (
+                  <div className="px-3 py-3 text-xs text-muted">暂无观察池分组</div>
+                )}
+              </div>
+
+              {staleGroupIds.length > 0 && (
+                <div className="flex items-center justify-between gap-2 rounded-btn border border-warning/30 bg-warning/8 px-3 py-2 text-[11px] text-warning/90">
+                  <span className="min-w-0 truncate">已忽略 {staleGroupIds.length} 个不存在的分组</span>
+                  <button
+                    type="button"
+                    onClick={() => setWatchlistGroupIds(validWatchlistGroupIds)}
+                    className="shrink-0 rounded-btn px-2 py-1 hover:bg-warning/15"
+                  >
+                    清理
+                  </button>
+                </div>
+              )}
+
+              <div className="rounded-btn border border-border bg-surface/60 px-3 py-2 text-[11px]">
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className="text-secondary">
+                    已选 {selectedGroups.length} 组
+                  </span>
+                  <span className="font-mono text-accent">{localWatchlistSymbols.length} 只</span>
+                </div>
+                {selectedGroups.length > 0 ? (
+                  <div className="mb-1 flex flex-wrap gap-1">
+                    {selectedGroups.slice(0, 6).map(group => (
+                      <span key={group.id} className="max-w-[160px] truncate rounded border border-border bg-base px-1.5 py-0.5 text-muted">
+                        {group.name}
+                      </span>
+                    ))}
+                    {selectedGroups.length > 6 && (
+                      <span className="rounded border border-border bg-base px-1.5 py-0.5 text-muted">
+                        +{selectedGroups.length - 6}
+                      </span>
+                    )}
+                  </div>
+                ) : (
+                  <div className="text-muted">未选择分组时，观察池来源不会贡献标的</div>
+                )}
+                {localWatchlistSample.length > 0 && (
+                  <div className="line-clamp-2 font-mono text-[10px] leading-5 text-muted">
+                    {localWatchlistSample.join('  ')}
+                    {localWatchlistSymbols.length > localWatchlistSample.length ? '  ...' : ''}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="rounded-card border border-border bg-base/30 p-3">
         <div className="mb-2 flex items-center justify-between text-xs">

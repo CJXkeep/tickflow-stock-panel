@@ -216,12 +216,21 @@ def get_focus_universe_config() -> dict:
                 sources[key] = bool(stored_sources[key])
     alert_limit = stored.get("alert_limit", 200) if isinstance(stored, dict) else 200
     local_fallback_limit = stored.get("local_fallback_limit", 30) if isinstance(stored, dict) else 30
+    group_mode = stored.get("watchlist_group_mode", "all") if isinstance(stored, dict) else "all"
+    if group_mode not in ("all", "selected"):
+        group_mode = "all"
     return {
         "sources": sources,
         "include_symbols": _normalize_symbol_list(stored.get("include_symbols") if isinstance(stored, dict) else []),
         "exclude_symbols": _normalize_symbol_list(stored.get("exclude_symbols") if isinstance(stored, dict) else []),
         "alert_limit": _clamped_int(alert_limit, 200, 0, 1000),
         "local_fallback_limit": _clamped_int(local_fallback_limit, 30, 0, 500),
+        "watchlist_group_mode": group_mode,
+        "watchlist_group_ids": [
+            str(v)
+            for v in (stored.get("watchlist_group_ids") if isinstance(stored, dict) else []) or []
+            if str(v).strip()
+        ],
     }
 
 
@@ -241,6 +250,15 @@ def set_focus_universe_config(config: dict) -> dict:
         current["alert_limit"] = _clamped_int(config.get("alert_limit"), 200, 0, 1000)
     if isinstance(config, dict) and "local_fallback_limit" in config:
         current["local_fallback_limit"] = _clamped_int(config.get("local_fallback_limit"), 30, 0, 500)
+    if isinstance(config, dict) and "watchlist_group_mode" in config:
+        mode = str(config.get("watchlist_group_mode") or "all")
+        current["watchlist_group_mode"] = mode if mode in ("all", "selected") else "all"
+    if isinstance(config, dict) and "watchlist_group_ids" in config:
+        current["watchlist_group_ids"] = [
+            str(v)
+            for v in (config.get("watchlist_group_ids") or [])
+            if str(v).strip()
+        ]
     save({"focus_universe": current})
     return get_focus_universe_config()
 
